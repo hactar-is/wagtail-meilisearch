@@ -36,3 +36,7 @@ If you want to help with the development I'd be more than happy. The vast majori
     * Faceting
     * Sort keys by boost value before creating an index
     * Search results
+
+### Thanks
+
+Thank you to the devs of [https://github.com/wagtail/wagtail-whoosh](Wagtail-Whoosh). Reading the code over there was the only way I could work out how Wagtail Search backends are supposed to work.
