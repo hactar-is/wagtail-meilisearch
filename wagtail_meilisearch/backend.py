@@ -1,5 +1,7 @@
 # 3rd party
+from functools import lru_cache
 import meilisearch
+from django.apps import apps
 from django.db.models import Manager, Model, QuerySet
 from wagtail.search.index import (
     FilterField, SearchField, RelatedFields, AutocompleteField, class_is_indexed,
@@ -7,7 +9,7 @@ from wagtail.search.index import (
 )
 from django.utils.encoding import force_text
 from wagtail.search.backends.base import (
-    BaseSearchQueryCompiler, BaseSearchResults, BaseSearchBackend
+    BaseSearchQueryCompiler, BaseSearchResults, BaseSearchBackend, EmptySearchResults
 )
 
 
@@ -134,6 +136,9 @@ class MeiliSearchModelIndex:
     def delete_item(self, obj):
         self.index.delete_document(obj.id)
 
+    def search(self, query, qargs):
+        return self.index.search(query, qargs)
+
     def __str__(self):
         return self.name
 
@@ -160,14 +165,53 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
     pass
 
 
-class WhooshSearchResults(BaseSearchResults):
-    pass
+@lru_cache()
+def get_descendant_models(model):
+    """
+    Borrowed from Wagtail-Whoosh
+    Returns all descendants of a model
+    e.g. for a search on Page, return [HomePage, ContentPage, Page] etc.
+    """
+    descendant_models = [
+        other_model for other_model in apps.get_models() if issubclass(other_model, model)
+    ]
+    return descendant_models
+
+
+class MeiliSearchResults(BaseSearchResults):
+    supports_facet = False
+
+    def _do_search(self):
+        ids = []
+        score_map = {}  # TODO
+
+        qc = self.query_compiler
+        model = qc.queryset.model
+        models = get_descendant_models(model)
+
+        for m in models:
+            index = self.backend.get_index_for_model(m)
+            # TODO: Work out if we want or need this limit
+            rv = index.search(qc.query.query_string, {'limit': 999999})
+            for item in rv['hits']:
+                if item not in ids:
+                    ids.append(item['id'])
+
+        # By this point we have a load of IDs in ids that we can do something with
+        # MeiliSearch has already sorted on relevance, so hopefully we can get a queryset to
+        # return and the order will be maintained. This will need testing.
+        results = qc.queryset.filter(pk__in=ids).distinct()[self.start:self.stop]
+        return results
+
+    def _do_count(self):
+        return len(self._do_search())
 
 
 class MeiliSearchBackend(BaseSearchBackend):
 
     query_compiler_class = MeiliSearchQueryCompiler
     rebuilder_class = MeiliSearchRebuilder
+    results_class = MeiliSearchResults
 
     def __init__(self, params):
         super().__init__(params)

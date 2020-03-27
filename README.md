@@ -36,6 +36,9 @@ If you want to help with the development I'd be more than happy. The vast majori
     * Faceting
     * Sort keys by boost value before creating an index
     * Search results
+    * Add support for the autocomplete api
+    * Ensure we're getting results by relevance
+    * Write tests
 
 ### Thanks
 
