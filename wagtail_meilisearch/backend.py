@@ -229,7 +229,8 @@ class MeiliSearchResults(BaseSearchResults):
                 if item not in results:
                     results.append(item)
 
-        """At this point we have a list of results that each look something like this...
+        """At this point we have a list of results that each look something like this
+        (with various fields snipped)...
 
         {
             'id': 45014,
@@ -379,7 +380,8 @@ class MeiliSearchBackend(BaseSearchBackend):
             partial_match=partial_match,
         )
 
-    def autocomplete(self, query, model_or_queryset, fields=None, operator=None, order_by_relevance=True):
+    def autocomplete(
+            self, query, model_or_queryset, fields=None, operator=None, order_by_relevance=True):
         if self.autocomplete_query_compiler_class is None:
             raise NotImplementedError("This search backend does not support the autocomplete API")
 

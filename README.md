@@ -29,13 +29,13 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ### TODO
 
-    * Faceting
-    * Implement boosting in the sort algorithm
-    * ~~Search results~~
-    * ~~Add support for the autocomplete api~~
-    * ~~Ensure we're getting results by relevance~~
-    * Write tests
-    * Performance improvements - particularly in the autocomplete query compiler which for some reason seems slower than the regular one.
+* Faceting
+* Implement boosting in the sort algorithm
+* ~~Search results~~
+* ~~Add support for the autocomplete api~~
+* ~~Ensure we're getting results by relevance~~
+* Write tests
+* Performance improvements - particularly in the autocomplete query compiler which for some reason seems slower than the regular one.
 
 ### Thanks
 

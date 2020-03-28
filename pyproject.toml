@@ -1,8 +1,31 @@
 [tool.poetry]
 name = "wagtail-meilisearch"
-version = "0.1.0"
+version = "0.1.1"
 description = "A MeiliSearch backend for Wagatil"
 authors = ["Hactar <systems@hactar.is>"]
+
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/hactar-is/wagtail-meilisearch"
+repository = "https://github.com/hactar-is/wagtail-meilisearch"
+keywords = ["wagtail", "django", "search", "meilisearch"]
+classifiers=[
+    'Environment :: Web Environment',
+    'Framework :: Django',
+    'Framework :: Wagtail',
+    'Framework :: Wagtail :: 2',
+    'Intended Audience :: Developers',
+    'Operating System :: OS Independent',
+    'Programming Language :: Python',
+    'Programming Language :: Python :: 3.6',
+    'Programming Language :: Python :: 3.7',
+    'Programming Language :: Python :: 3.8',
+    'Topic :: Internet :: WWW/HTTP',
+    'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
+]
+include = [
+    "LICENSE",
+]
 
 [tool.poetry.dependencies]
 python = "^3.6"
