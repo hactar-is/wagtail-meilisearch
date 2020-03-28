@@ -1,15 +1,11 @@
 # Wagtail MeiliSearch
 
-This is a (work in progress) Wagtail search backend for the [https://github.com/meilisearch/MeiliSearch](MeiliSearch) search engine.
+This is a (beta) Wagtail search backend for the [https://github.com/meilisearch/MeiliSearch](MeiliSearch) search engine.
 
 
 ## Installation
 
-Once this is submitted to PyPI then it should just be...
-
 `poetry add wagtail_meilisearch` or `pip install wagtail_meilisearch`
-
-In the meantime, install it from git.
 
 ## Configuration
 
@@ -34,11 +30,12 @@ If you want to help with the development I'd be more than happy. The vast majori
 ### TODO
 
     * Faceting
-    * Sort keys by boost value before creating an index
-    * Search results
-    * Add support for the autocomplete api
-    * Ensure we're getting results by relevance
+    * Implement boosting in the sort algorithm
+    * ~~Search results~~
+    * ~~Add support for the autocomplete api~~
+    * ~~Ensure we're getting results by relevance~~
     * Write tests
+    * Performance improvements - particularly in the autocomplete query compiler which for some reason seems slower than the regular one.
 
 ### Thanks
 

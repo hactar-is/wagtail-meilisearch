@@ -191,6 +191,13 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
         return q
 
 
+class MeiliSearchAutocompleteQueryCompiler(MeiliSearchQueryCompiler):
+    def _get_fields_names(self):
+        model = self.queryset.model
+        for field in model.get_autocomplete_search_fields():
+            yield _get_field_mapping(field)
+
+
 @lru_cache()
 def get_descendant_models(model):
     """
@@ -282,6 +289,7 @@ class MeiliSearchResults(BaseSearchResults):
 class MeiliSearchBackend(BaseSearchBackend):
 
     query_compiler_class = MeiliSearchQueryCompiler
+    autocomplete_query_compiler_class = MeiliSearchAutocompleteQueryCompiler
     rebuilder_class = MeiliSearchRebuilder
     results_class = MeiliSearchResults
 
