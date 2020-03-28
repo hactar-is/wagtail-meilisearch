@@ -1,6 +1,6 @@
 # Wagtail MeiliSearch
 
-This is a (beta) Wagtail search backend for the [https://github.com/meilisearch/MeiliSearch](MeiliSearch) search engine.
+This is a (beta) Wagtail search backend for the [MeiliSearch](https://github.com/meilisearch/MeiliSearch) search engine.
 
 
 ## Installation
@@ -9,7 +9,7 @@ This is a (beta) Wagtail search backend for the [https://github.com/meilisearch/
 
 ## Configuration
 
-See the [https://docs.meilisearch.com/guides/advanced_guides/installation.html#environment-variables-and-flags](MeiliSearch docs) for info on the values you want to add here.
+See the [MeiliSearch docs](https://docs.meilisearch.com/guides/advanced_guides/installation.html#environment-variables-and-flags) for info on the values you want to add here.
 
 ```
 WAGTAILSEARCH_BACKENDS = {
@@ -39,4 +39,4 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ### Thanks
 
-Thank you to the devs of [https://github.com/wagtail/wagtail-whoosh](Wagtail-Whoosh). Reading the code over there was the only way I could work out how Wagtail Search backends are supposed to work.
+Thank you to the devs of [Wagtail-Whoosh](https://github.com/wagtail/wagtail-whoosh). Reading the code over there was the only way I could work out how Wagtail Search backends are supposed to work.
