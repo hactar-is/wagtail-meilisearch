@@ -1,16 +1,20 @@
-# 3rd party
+
+# stdlib
 from operator import itemgetter
 from functools import lru_cache
+
+# 3rd party
 import meilisearch
 from django.apps import apps
-from django.db.models import Manager, Model, QuerySet, Case, Q, When
+from django.db.models import Q, Case, When, Model, Manager, QuerySet
 from wagtail.search.index import (
     FilterField, SearchField, RelatedFields, AutocompleteField, class_is_indexed,
     get_indexed_models
 )
+from wagtail.search.utils import OR, AND
 from django.utils.encoding import force_text
 from wagtail.search.backends.base import (
-    BaseSearchQueryCompiler, BaseSearchResults, BaseSearchBackend, EmptySearchResults
+    BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
 )
 
 
@@ -168,9 +172,23 @@ class MeiliSearchRebuilder:
 
 class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
 
-    def _process_filter(self, field_attname, lookup, value, check_only=False):
-        import ipdb; ipdb.set_trace()
-        return super()._process_filter(field_attname, lookup, value, check_only)
+    def _process_lookup(self, field, lookup, value):
+        # Also borrowed from wagtail-whoosh
+        return Q(**{field.get_attname(self.queryset.model) + '__' + lookup: value})
+
+    def _connect_filters(self, filters, connector, negated):
+        # Also borrowed from wagtail-whoosh
+        if connector == 'AND':
+            q = Q(*filters)
+        elif connector == 'OR':
+            q = OR([Q(fil) for fil in filters])
+        else:
+            return
+
+        if negated:
+            q = ~q
+
+        return q
 
 
 @lru_cache()
@@ -235,7 +253,7 @@ class MeiliSearchResults(BaseSearchResults):
         """
         # Let's annotate this list working out some kind of basic score for each item
         # The simplest way is probably to len(str(item['_matchesInfo'])) which for the
-        # above example returns a score of 386 and for the bottom result in my test is
+        # above example returns a score of 386 and for the bottom result in my test set is
         # just 40.
 
         # TODO: Implement `boost` on fields
