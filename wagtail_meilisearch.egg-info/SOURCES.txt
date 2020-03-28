@@ -1,4 +1,4 @@
-README.rst
+README.md
 pyproject.toml
 setup.py
 wagtail_meilisearch/__init__.py

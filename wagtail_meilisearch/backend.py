@@ -1,4 +1,3 @@
-
 # stdlib
 from operator import itemgetter
 from functools import lru_cache
@@ -16,6 +15,13 @@ from django.utils.encoding import force_text
 from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
 )
+
+try:
+    from cacheops import invalidate_model
+except ImportError:
+    pass
+else:
+    USING_CACHEOPS = True
 
 
 AUTOCOMPLETE_SUFFIX = '_ngrams'
@@ -82,6 +88,14 @@ class MeiliSearchModelIndex:
         return self
 
     def prepare_value(self, value):
+        """Makes sure `value` is something we can save in the index.
+
+        Args:
+            value (UNKNOWN): This could be anything.
+
+        Returns:
+            str: A String representation of whatever `value` was
+        """
         if not value:
             return ''
         if isinstance(value, str):
@@ -96,6 +110,20 @@ class MeiliSearchModelIndex:
         return force_text(value)
 
     def _get_document_fields(self, model, item):
+        """Borrowed from Wagtail-Whoosh
+        Walks through the model's search fields and returns stuff the way the index is
+        going to want it.
+
+        Todo:
+            * Make sure all of this is usable by MeiliSearch
+
+        Args:
+            model (db.Model): The model class we want the fields for
+            item (db.Model): The model instance we want the fields for
+
+        Yields:
+            TYPE: Description
+        """
         for field in model.get_search_fields():
             if isinstance(field, (SearchField, FilterField, AutocompleteField)):
                 yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
@@ -112,11 +140,17 @@ class MeiliSearchModelIndex:
                         yield '{0}__{1}'.format(field.field_name, _get_field_mapping(sub_field)),\
                             self.prepare_value(sub_field.get_value(value))
 
-    def prepare_body(self, obj):
-        return [(value, boost) for field in self.search_fields
-                for value, boost in self.prepare_field(obj, field)]
-
+    @lru_cache()
     def _create_document(self, model, item):
+        """Create a dict containing the fields we want to send to MeiliSearch
+
+        Args:
+            model (db.Model): The model class we're indexing
+            item (db.Model): The model instance we're indexing
+
+        Returns:
+            dict: A dict representation of the model
+        """
         doc_fields = dict(self._get_document_fields(model, item))
         doc_fields.update(id=item.id)
         document = {}
@@ -131,16 +165,44 @@ class MeiliSearchModelIndex:
 
     def add_item(self, item):
         doc = self._create_document(self.model, item)
-        rv = self.index.add_documents([doc])
+        self.index.add_documents([doc])
 
     def add_items(self, item_model, items):
-        prepared = []
-        for item in items:
-            doc = self._create_document(self.model, item)
-            prepared.append(doc)
+        """Adds items in bulk to the index. If we're adding stuff through the `update_index`
+        management command, we'll receive these in chunks of 1000.
 
-        rv = self.index.add_documents(prepared)
-        return rv
+        We're then splitting those chunks into smaller chunks of 100, I think that helps
+        not overload stuff, but it would be good TODO tests to verify this.
+
+        Args:
+            item_model (db.Model): The model class we're indexing
+            items (list): A list containing a bunch of items to index.
+
+        Returns:
+            bool: True
+        """
+        prepared = []
+
+        # Ensure we're not indexing something stale from the cache
+        # This also stops redis from overloading during the indexing
+        if USING_CACHEOPS is True:
+            try:
+                invalidate_model(item_model)
+            except Exception:
+                pass
+
+        # split items into chunks of 100
+        chunks = [items[x:x + 100] for x in range(0, len(items), 100)]
+        for chunk in chunks:
+            prepared = []
+            for item in chunk:
+                doc = self._create_document(self.model, item)
+                prepared.append(doc)
+
+            self.index.add_documents(prepared)
+            del(chunk)
+
+        return True
 
     def delete_item(self, obj):
         self.index.delete_document(obj.id)
@@ -158,13 +220,12 @@ class MeiliSearchRebuilder:
         self.uid = self.index._get_label(self.index.model)
 
     def start(self):
-        # for now, we're going to just delete the passed index and re-create.
-        # We may look at a better way in the future.
-        model = self.index.model
+        # for now, we're going to just delete every document in the passed index
         old_index = self.index.backend.client.get_index(self.uid)
-        old_index.delete()
-        new_index = self.index.backend.get_index_for_model(model)
-        return new_index
+        old_index.delete_all_documents()
+        model = self.index.model
+        index = self.index.backend.get_index_for_model(model)
+        return index
 
     def finish(self):
         pass
