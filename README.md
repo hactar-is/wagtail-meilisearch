@@ -22,6 +22,39 @@ WAGTAILSEARCH_BACKENDS = {
 }
 ```
 
+## Stop Words
+
+Stop words are words for which we don't want to place significance on their frequency. For instance, the search query `tom and jerry` would return far less relevant results if the word `and` was given the same importance as `tom` and `jerry`. There's a fairly sane list of English language stop words supplied, but you can also supply your own. This is particularly useful if you have a lot of content in any other language.
+
+```
+MY_STOP_WORDS = ['a', 'list', 'of', 'words']
+
+WAGTAILSEARCH_BACKENDS = {
+    'default': {
+        'BACKEND': 'wagtail_meilisearch.backend',
+        [...]
+        'STOP_WORDS': MY_STOP_WORDS
+    },
+}
+```
+
+Or alternatively, you can extend the built in list.
+
+```
+from wagtail_meilisearch.settings import STOP_WORDS
+
+MY_STOP_WORDS = STOP_WORDS + WELSH_STOP_WORDS + FRENCH_STOP_WORDS
+
+WAGTAILSEARCH_BACKENDS = {
+    'default': {
+        'BACKEND': 'wagtail_meilisearch.backend',
+        [...]
+        'STOP_WORDS': MY_STOP_WORDS
+    },
+}
+```
+
+
 ## Contributing
 
 If you want to help with the development I'd be more than happy. The vast majority of the heavy lifting is done by MeiliSearch itself, but there is a TODO list...
@@ -33,7 +66,7 @@ If you want to help with the development I'd be more than happy. The vast majori
 * Implement boosting in the sort algorithm
 * Write tests
 * Performance improvements - particularly in the autocomplete query compiler which for some reason seems slower than the regular one.
-* Implement stop words
+* ~~Implement stop words~~
 * ~~Search results~~
 * ~~Add support for the autocomplete api~~
 * ~~Ensure we're getting results by relevance~~

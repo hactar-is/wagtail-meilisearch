@@ -16,6 +16,8 @@ from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
 )
 
+from .settings import STOP_WORDS
+
 try:
     from cacheops import invalidate_model
 except ImportError:
@@ -66,6 +68,7 @@ class MeiliSearchModelIndex:
             self.client.get_index(label).get_settings()
         except Exception:
             index = self.client.create_index(uid=label, primary_key='id')
+            index.update_stop_words(self.backend.stop_words)
         else:
             index = self.client.get_index(label)
 
@@ -365,6 +368,7 @@ class MeiliSearchBackend(BaseSearchBackend):
             )
         except Exception:
             raise
+        self.stop_words = params.get('STOP_WORDS', STOP_WORDS)
 
     def _refresh(self, uid, model):
         index = self.client.get_index(uid)
