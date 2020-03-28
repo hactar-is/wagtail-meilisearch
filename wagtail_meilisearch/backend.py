@@ -1,8 +1,9 @@
 # 3rd party
+from operator import itemgetter
 from functools import lru_cache
 import meilisearch
 from django.apps import apps
-from django.db.models import Manager, Model, QuerySet
+from django.db.models import Manager, Model, QuerySet, Case, Q, When
 from wagtail.search.index import (
     FilterField, SearchField, RelatedFields, AutocompleteField, class_is_indexed,
     get_indexed_models
@@ -43,6 +44,10 @@ class MeiliSearchModelIndex:
         self.model = model
         self.name = model._meta.label
         self.index = self._set_index(model)
+        self.search_params = {
+            'limit': 999999,
+            'matches': 'true'
+        }
 
     def _set_index(self, model):
         label = self._get_label(model)
@@ -136,8 +141,8 @@ class MeiliSearchModelIndex:
     def delete_item(self, obj):
         self.index.delete_document(obj.id)
 
-    def search(self, query, qargs):
-        return self.index.search(query, qargs)
+    def search(self, query):
+        return self.index.search(query, self.search_params)
 
     def __str__(self):
         return self.name
@@ -162,7 +167,10 @@ class MeiliSearchRebuilder:
 
 
 class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
-    pass
+
+    def _process_filter(self, field_attname, lookup, value, check_only=False):
+        import ipdb; ipdb.set_trace()
+        return super()._process_filter(field_attname, lookup, value, check_only)
 
 
 @lru_cache()
@@ -182,25 +190,71 @@ class MeiliSearchResults(BaseSearchResults):
     supports_facet = False
 
     def _do_search(self):
-        ids = []
-        score_map = {}  # TODO
+        results = []
 
         qc = self.query_compiler
         model = qc.queryset.model
         models = get_descendant_models(model)
+        terms = qc.query.query_string
 
         for m in models:
             index = self.backend.get_index_for_model(m)
-            # TODO: Work out if we want or need this limit
-            rv = index.search(qc.query.query_string, {'limit': 999999})
+            rv = index.search(terms)
             for item in rv['hits']:
-                if item not in ids:
-                    ids.append(item['id'])
+                if item not in results:
+                    results.append(item)
 
-        # By this point we have a load of IDs in ids that we can do something with
-        # MeiliSearch has already sorted on relevance, so hopefully we can get a queryset to
-        # return and the order will be maintained. This will need testing.
-        results = qc.queryset.filter(pk__in=ids).distinct()[self.start:self.stop]
+        """At this point we have a list of results that each look something like this...
+
+        {
+            'id': 45014,
+            '_matchesInfo': {
+                'title_filter': [
+                    {'start': 0, 'length': 6}
+                ],
+                'title': [
+                    {'start': 0, 'length': 6}
+                ],
+                'excerpt': [
+                    {'start': 20, 'length': 6}
+                ],
+                'title_ngrams': [
+                    {'start': 0, 'length': 6}
+                ],
+                'body': [
+                    {'start': 66, 'length': 6},
+                    {'start': 846, 'length': 6},
+                    {'start': 1888, 'length': 6},
+                    {'start': 2250, 'length': 6},
+                    {'start': 2262, 'length': 6},
+                    {'start': 2678, 'length': 6},
+                    {'start': 3307, 'length': 6}
+                ]
+            }
+        }
+        """
+        # Let's annotate this list working out some kind of basic score for each item
+        # The simplest way is probably to len(str(item['_matchesInfo'])) which for the
+        # above example returns a score of 386 and for the bottom result in my test is
+        # just 40.
+
+        # TODO: Implement `boost` on fields
+        for item in results:
+            item['score'] = len(str(item['_matchesInfo']))
+
+        sorted_results = sorted(results, key=itemgetter('score'), reverse=True)
+        sorted_ids = [_['id'] for _ in sorted_results]
+
+        # This piece of utter genius is borrowed wholesale from wagtail-whoosh after I spent
+        # several hours trying and failing to work out how to do this.
+        if qc.order_by_relevance:
+            # Retrieve the results from the db, but preserve the order by score
+            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(sorted_ids)])
+            results = qc.queryset.filter(pk__in=sorted_ids).order_by(preserved_order)
+        else:
+            results = qc.queryset.filter(pk__in=sorted_ids)
+        results = results.distinct()[self.start:self.stop]
+
         return results
 
     def _do_count(self):
