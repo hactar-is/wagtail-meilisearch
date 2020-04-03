@@ -48,6 +48,12 @@ WAGTAILSEARCH_BACKENDS = {
 }
 ```
 
+If you use this technique, remember to pass the backend name into the `update_index` command otherwise both will run.
+
+`python manage.py update_index --backend default` for a soft update
+`python manage.py update_index --backend hard` for a hard update
+
+
 ## Stop Words
 
 Stop words are words for which we don't want to place significance on their frequency. For instance, the search query `tom and jerry` would return far less relevant results if the word `and` was given the same importance as `tom` and `jerry`. There's a fairly sane list of English language stop words supplied, but you can also supply your own. This is particularly useful if you have a lot of content in any other language.
