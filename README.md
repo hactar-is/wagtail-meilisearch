@@ -22,6 +22,32 @@ WAGTAILSEARCH_BACKENDS = {
 }
 ```
 
+## Update strategies
+
+Indexing a very large site with `python manage.py update_index` can be pretty taxing on the CPU, take quite a long time, and reduce the responsiveness of the MeiliSearch server. Wagtail-MeiliSearch offers two update strategies, `soft` and `hard`. The default, `soft` strategy will do an "add or update" call for each document sent to it, while the `hard` strategy will delete every document in the index and then replace them.
+
+There are tradeoffs with either strategy - `hard` will guarantee that your search data matches your model data, but be hard work on the CPU for longer. `soft` will be faster and less CPU intensive, but if a field is removed from your model between indexings, that field data will remain in the search index.
+
+One useful trick is to tell Wagtail that you have two search backends, with the default backend set to do `soft` updates that you can run nightly, and a second backend with `hard` updates that you can run less frequently.
+
+```
+WAGTAILSEARCH_BACKENDS = {
+    'default': {
+        'BACKEND': 'wagtail_meilisearch.backend',
+        'HOST': os.environ.get('MEILISEARCH_HOST', 'http://127.0.0.1'),
+        'PORT': os.environ.get('MEILISEARCH_PORT', '7700'),
+        'MASTER_KEY': os.environ.get('MEILI_MASTER_KEY', '')
+    },
+    'hard': {
+        'BACKEND': 'wagtail_meilisearch.backend',
+        'HOST': os.environ.get('MEILISEARCH_HOST', 'http://127.0.0.1'),
+        'PORT': os.environ.get('MEILISEARCH_PORT', '7700'),
+        'MASTER_KEY': os.environ.get('MEILI_MASTER_KEY', ''),
+        'UPDATE_STRATEGY': 'hard'
+    }
+}
+```
+
 ## Stop Words
 
 Stop words are words for which we don't want to place significance on their frequency. For instance, the search query `tom and jerry` would return far less relevant results if the word `and` was given the same importance as `tom` and `jerry`. There's a fairly sane list of English language stop words supplied, but you can also supply your own. This is particularly useful if you have a lot of content in any other language.

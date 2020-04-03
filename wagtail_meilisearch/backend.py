@@ -16,6 +16,8 @@ from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
 )
 
+from consoler import console
+
 from .settings import STOP_WORDS
 
 try:
@@ -60,6 +62,7 @@ class MeiliSearchModelIndex:
             'limit': 999999,
             'matches': 'true'
         }
+        self.update_strategy = backend.update_strategy
 
     def _set_index(self, model):
         label = self._get_label(model)
@@ -129,19 +132,30 @@ class MeiliSearchModelIndex:
         """
         for field in model.get_search_fields():
             if isinstance(field, (SearchField, FilterField, AutocompleteField)):
-                yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
+                try:
+                    yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
+                except Exception:
+                    pass
             if isinstance(field, RelatedFields):
                 value = field.get_value(item)
                 if isinstance(value, (Manager, QuerySet)):
                     qs = value.all()
                     for sub_field in field.fields:
                         sub_values = qs.values_list(sub_field.field_name, flat=True)
-                        yield '{0}__{1}'.format(field.field_name, _get_field_mapping(sub_field)), \
-                            self.prepare_value(list(sub_values))
+                        try:
+                            yield '{0}__{1}'.format(
+                                field.field_name, _get_field_mapping(sub_field)), \
+                                self.prepare_value(list(sub_values))
+                        except Exception:
+                            pass
                 if isinstance(value, Model):
                     for sub_field in field.fields:
-                        yield '{0}__{1}'.format(field.field_name, _get_field_mapping(sub_field)),\
-                            self.prepare_value(sub_field.get_value(value))
+                        try:
+                            yield '{0}__{1}'.format(
+                                field.field_name, _get_field_mapping(sub_field)),\
+                                self.prepare_value(sub_field.get_value(value))
+                        except Exception:
+                            pass
 
     @lru_cache()
     def _create_document(self, model, item):
@@ -168,7 +182,10 @@ class MeiliSearchModelIndex:
 
     def add_item(self, item):
         doc = self._create_document(self.model, item)
-        self.index.add_documents([doc])
+        if self.update_strategy == 'soft':
+            self.index.update_documents([doc])
+        else:
+            self.index.add_documents([doc])
 
     def add_items(self, item_model, items):
         """Adds items in bulk to the index. If we're adding stuff through the `update_index`
@@ -202,7 +219,10 @@ class MeiliSearchModelIndex:
                 doc = self._create_document(self.model, item)
                 prepared.append(doc)
 
-            self.index.add_documents(prepared)
+            if self.update_strategy == 'soft':
+                self.index.update_documents(prepared)
+            else:
+                self.index.add_documents(prepared)
             del(chunk)
 
         return True
@@ -223,9 +243,25 @@ class MeiliSearchRebuilder:
         self.uid = self.index._get_label(self.index.model)
 
     def start(self):
-        # for now, we're going to just delete every document in the passed index
-        old_index = self.index.backend.client.get_index(self.uid)
-        old_index.delete_all_documents()
+        """This is the thing that starts of a rebuild of the search
+        index. We offer two strategies, `hard` and `soft`.
+
+        `hard` will delete every document in the index and try to add them anew
+        `soft` will do an "add or update" for each document
+
+        The trade off here is that a `hard` update is CPU intensive for quite a long time, while
+        a `soft` update can leave fields in existing indexed documents that aren't in the new
+        document.
+        """
+        strategy = self.index.backend.update_strategy
+        if strategy == 'soft':
+            # SOFT UPDATE STRATEGY
+            index = self.index.backend.client.get_index(self.uid)
+        else:
+            # HARD UPDATE STRATEGY
+            old_index = self.index.backend.client.get_index(self.uid)
+            old_index.delete_all_documents()
+
         model = self.index.model
         index = self.index.backend.get_index_for_model(model)
         return index
@@ -369,6 +405,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         except Exception:
             raise
         self.stop_words = params.get('STOP_WORDS', STOP_WORDS)
+        self.update_strategy = params.get('UPDATE_STRATEGY', 'soft')
 
     def _refresh(self, uid, model):
         index = self.client.get_index(uid)
