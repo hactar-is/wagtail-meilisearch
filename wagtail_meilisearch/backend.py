@@ -16,7 +16,6 @@ from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
 )
 
-from consoler import console
 
 from .settings import STOP_WORDS
 
