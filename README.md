@@ -53,6 +53,37 @@ If you use this technique, remember to pass the backend name into the `update_in
 `python manage.py update_index --backend default` for a soft update
 `python manage.py update_index --backend hard` for a hard update
 
+### Delta strategy
+
+The `delta` strategy is useful if you habitually add created_at and updated_at timestamps to your models. This strategy will check the fields...
+
+* `first_published_at`
+* `last_published_at`
+* `created_at`
+* `updated_at`
+
+And only update the records for objects where one or more of these fields has a date more recent than the time delta specified in the settings.
+
+```
+WAGTAILSEARCH_BACKENDS = {
+    'default': {
+        'BACKEND': 'wagtail_meilisearch.backend',
+        'HOST': os.environ.get('MEILISEARCH_HOST', 'http://127.0.0.1'),
+        'PORT': os.environ.get('MEILISEARCH_PORT', '7700'),
+        'MASTER_KEY': os.environ.get('MEILI_MASTER_KEY', '')
+        'UPDATE_STRATEGY': delta,
+        'UPDATE_DELTA': {
+            'weeks': -1
+        }
+    }
+}
+```
+
+If the delta is set to `{'weeks': -1}`, wagtail-meilisearch will only update indexes for documents where one of the timestamp fields has a date within the last week. Your time delta _must_ be a negative.
+
+Under the hood we use [Arrow](https://arrow.readthedocs.io), so you can use any keyword args supported by [Arrow's `shift()`](https://arrow.readthedocs.io/en/latest/index.html#replace-shift).
+
+If you set `UPDATE_STRATEGY` to `delta` but don't provide a value for `UPDATE_DELTA` wagtail-meilisearch will default to `{'weeks': -1}`.
 
 ## Stop Words
 

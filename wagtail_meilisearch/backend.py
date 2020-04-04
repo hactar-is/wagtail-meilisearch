@@ -1,8 +1,11 @@
+from consoler import console
+
 # stdlib
 from operator import itemgetter
 from functools import lru_cache
 
 # 3rd party
+import arrow
 import meilisearch
 from django.apps import apps
 from django.db.models import Q, Case, When, Model, Manager, QuerySet
@@ -10,7 +13,7 @@ from wagtail.search.index import (
     FilterField, SearchField, RelatedFields, AutocompleteField, class_is_indexed,
     get_indexed_models
 )
-from wagtail.search.utils import OR, AND
+from wagtail.search.utils import OR
 from django.utils.encoding import force_text
 from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
@@ -62,6 +65,10 @@ class MeiliSearchModelIndex:
             'matches': 'true'
         }
         self.update_strategy = backend.update_strategy
+        self.update_delta = backend.update_delta
+        self.delta_fields = [
+            'created_at', 'updated_at', 'first_published_at', 'last_published_at'
+        ]
 
     def _set_index(self, model):
         label = self._get_label(model)
@@ -180,6 +187,12 @@ class MeiliSearchModelIndex:
         pass
 
     def add_item(self, item):
+        if self.update_strategy == 'delta':
+            # We send it a list and get back a list, though that list might be empty
+            checked = self._check_deltas([item, ])
+            if len(checked):
+                item = checked[0]
+
         doc = self._create_document(self.model, item)
         if self.update_strategy == 'soft':
             self.index.update_documents([doc])
@@ -212,19 +225,57 @@ class MeiliSearchModelIndex:
 
         # split items into chunks of 100
         chunks = [items[x:x + 100] for x in range(0, len(items), 100)]
+
         for chunk in chunks:
+            if self.update_strategy == 'delta':
+                chunk = self._check_deltas(chunk)
             prepared = []
             for item in chunk:
                 doc = self._create_document(self.model, item)
                 prepared.append(doc)
 
-            if self.update_strategy == 'soft':
+            if self.update_strategy == 'soft' or self.update_strategy == 'delta':
                 self.index.update_documents(prepared)
             else:
                 self.index.add_documents(prepared)
             del(chunk)
 
         return True
+
+    def _has_date_fields(self, obj):
+        find = self.delta_fields
+        fields = [_.name for _ in obj._meta.fields]
+        rv = any(item in find for item in fields)
+        return rv
+
+    def _check_deltas(self, objects: list) -> list:
+        """Takes a list of objects and removes any where the last_published_at, first_published_at,
+        created_at or updated_at are outside of the time delta.
+
+        TODO: This looks ugly, and is probably slow.
+
+        Args:
+            objects (list): A list of model instances
+        """
+        filtered = []
+        since = arrow.now().shift(**self.update_delta).datetime
+        console.buffer(f'\nFILTERING {len(objects)}')
+        for obj in objects:
+            if self._has_date_fields(obj):
+                for field in self.delta_fields:
+                    if hasattr(obj, field):
+                        val = getattr(obj, field)
+                        try:
+                            console.buffer(f'\nIS {val} > {since}')
+                            if val and val > since:
+                                console.buffer(f'\nYESSSSSSSS')
+                                filtered.append(obj)
+                                continue
+                        except TypeError:
+                            pass
+
+        console.buffer(f'\nRETURNING {len(filtered)}')
+        return filtered
 
     def delete_item(self, obj):
         self.index.delete_document(obj.id)
@@ -253,7 +304,7 @@ class MeiliSearchRebuilder:
         document.
         """
         strategy = self.index.backend.update_strategy
-        if strategy == 'soft':
+        if strategy == 'soft' or strategy == 'delta':
             # SOFT UPDATE STRATEGY
             index = self.index.backend.client.get_index(self.uid)
         else:
@@ -405,6 +456,9 @@ class MeiliSearchBackend(BaseSearchBackend):
             raise
         self.stop_words = params.get('STOP_WORDS', STOP_WORDS)
         self.update_strategy = params.get('UPDATE_STRATEGY', 'soft')
+        self.update_delta = None
+        if self.update_strategy == 'delta':
+            self.update_delta = params.get('UPDATE_DELTA', {'weeks': -1})
 
     def _refresh(self, uid, model):
         index = self.client.get_index(uid)
