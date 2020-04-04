@@ -147,7 +147,7 @@ If you want to help with the development I'd be more than happy. The vast majori
 * Faceting
 * Implement boosting in the sort algorithm
 * Write tests
-* Performance improvements - particularly in the autocomplete query compiler which for some reason seems slower than the regular one.
+* Performance improvements
 * ~~Implement stop words~~
 * ~~Search results~~
 * ~~Add support for the autocomplete api~~
