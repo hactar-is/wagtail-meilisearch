@@ -1,4 +1,4 @@
-from consoler import console
+import sys
 
 # stdlib
 from operator import itemgetter
@@ -259,22 +259,18 @@ class MeiliSearchModelIndex:
         """
         filtered = []
         since = arrow.now().shift(**self.update_delta).datetime
-        console.buffer(f'\nFILTERING {len(objects)}')
         for obj in objects:
             if self._has_date_fields(obj):
                 for field in self.delta_fields:
                     if hasattr(obj, field):
                         val = getattr(obj, field)
                         try:
-                            console.buffer(f'\nIS {val} > {since}')
                             if val and val > since:
-                                console.buffer(f'\nYESSSSSSSS')
                                 filtered.append(obj)
                                 continue
                         except TypeError:
                             pass
 
-        console.buffer(f'\nRETURNING {len(filtered)}')
         return filtered
 
     def delete_item(self, obj):
@@ -287,10 +283,20 @@ class MeiliSearchModelIndex:
         return self.name
 
 
+class DummyModelIndex:
+
+    def add_model(self, model):
+        pass
+
+    def add_items(self, model, chunk):
+        pass
+
+
 class MeiliSearchRebuilder:
     def __init__(self, model_index):
         self.index = model_index
         self.uid = self.index._get_label(self.index.model)
+        self.dummy_index = DummyModelIndex()
 
     def start(self):
         """This is the thing that starts of a rebuild of the search
@@ -303,6 +309,10 @@ class MeiliSearchRebuilder:
         a `soft` update can leave fields in existing indexed documents that aren't in the new
         document.
         """
+        if self.index.model._meta.label in self.index.backend.skip_models:
+            sys.stdout.write(f'SKIPPING: {self.index.model._meta.label}\n')
+            return self.dummy_index
+
         strategy = self.index.backend.update_strategy
         if strategy == 'soft' or strategy == 'delta':
             # SOFT UPDATE STRATEGY
@@ -455,6 +465,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         except Exception:
             raise
         self.stop_words = params.get('STOP_WORDS', STOP_WORDS)
+        self.skip_models = params.get('SKIP_MODELS', [])
         self.update_strategy = params.get('UPDATE_STRATEGY', 'soft')
         self.update_delta = None
         if self.update_strategy == 'delta':

@@ -85,6 +85,25 @@ Under the hood we use [Arrow](https://arrow.readthedocs.io), so you can use any 
 
 If you set `UPDATE_STRATEGY` to `delta` but don't provide a value for `UPDATE_DELTA` wagtail-meilisearch will default to `{'weeks': -1}`.
 
+## Skip models
+
+Sometimes you might have a site where a certain page model is guaranteed not to change, for instance an archive section. After creating your initial search index, you can add a `SKIP_MODELS` key to the config to tell wagtail-meilisearch to ignore specific models when running `update_index`. Behind the scenes wagtail-meilisearch returns a dummy model index to the `update_index` management command for every model listed in your `SKIP_MODELS` - this ensures that this setting only affects `update_index`, so if you manually edit one of the models listed it should get re-indexed with the update signal.
+
+```
+WAGTAILSEARCH_BACKENDS = {
+    'default': {
+        'BACKEND': 'wagtail_meilisearch.backend',
+        'HOST': os.environ.get('MEILISEARCH_HOST', 'http://127.0.0.1'),
+        'PORT': os.environ.get('MEILISEARCH_PORT', '7700'),
+        'MASTER_KEY': os.environ.get('MEILI_MASTER_KEY', ''),
+        'UPDATE_STRATEGY': 'delta',
+        'SKIP_MODELS': [
+            'core.ArchivePage',
+        ]
+    }
+}
+```
+
 ## Stop Words
 
 Stop words are words for which we don't want to place significance on their frequency. For instance, the search query `tom and jerry` would return far less relevant results if the word `and` was given the same importance as `tom` and `jerry`. There's a fairly sane list of English language stop words supplied, but you can also supply your own. This is particularly useful if you have a lot of content in any other language.
