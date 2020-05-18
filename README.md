@@ -145,9 +145,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 ### TODO
 
 * Faceting
-* Implement boosting in the sort algorithm
 * Write tests
 * Performance improvements
+* ~~Implement boosting in the sort algorithm~~
 * ~~Implement stop words~~
 * ~~Search results~~
 * ~~Add support for the autocomplete api~~
