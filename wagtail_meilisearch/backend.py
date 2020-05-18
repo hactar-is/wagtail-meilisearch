@@ -285,6 +285,11 @@ class MeiliSearchModelIndex:
 
 class DummyModelIndex:
 
+    """This class enables the SKIP_MODELS feature by providing a
+    dummy model index that we can add things to without it actually
+    doing anything.
+    """
+
     def add_model(self, model):
         pass
 
@@ -300,14 +305,17 @@ class MeiliSearchRebuilder:
 
     def start(self):
         """This is the thing that starts of a rebuild of the search
-        index. We offer two strategies, `hard` and `soft`.
+        index. We offer three strategies, `hard`, `soft` and `delta`.
 
-        `hard` will delete every document in the index and try to add them anew
-        `soft` will do an "add or update" for each document
+        * `hard` will delete every document in the index and try to add them anew
+        * `soft` will do an "add or update" for each document
+        * `delta` will attempt to only update documents that have been saved in the
+            last X amount of time
 
         The trade off here is that a `hard` update is CPU intensive for quite a long time, while
         a `soft` update can leave fields in existing indexed documents that aren't in the new
-        document.
+        document. Once a large site is fully indexed, it should be pretty safe to switch to a
+        `delta` strategy which would be the least CPU intensive of all.
         """
         if self.index.model._meta.label in self.index.backend.skip_models:
             sys.stdout.write(f'SKIPPING: {self.index.model._meta.label}\n')
@@ -374,6 +382,15 @@ def get_descendant_models(model):
 class MeiliSearchResults(BaseSearchResults):
     supports_facet = False
 
+    def _get_field_boosts(self, model):
+        boosts = {}
+        for field in model.search_fields:
+            if isinstance(field, SearchField):
+                if hasattr(field, 'boost'):
+                    boosts[field.field_name] = field.boost
+
+        return boosts
+
     def _do_search(self):
         results = []
 
@@ -385,8 +402,10 @@ class MeiliSearchResults(BaseSearchResults):
         for m in models:
             index = self.backend.get_index_for_model(m)
             rv = index.search(terms)
+            boosts = self._get_field_boosts(m)
             for item in rv['hits']:
                 if item not in results:
+                    item['boosts'] = boosts
                     results.append(item)
 
         """At this point we have a list of results that each look something like this
@@ -394,6 +413,9 @@ class MeiliSearchResults(BaseSearchResults):
 
         {
             'id': 45014,
+            'boosts': {
+                'title': 10
+            },
             '_matchesInfo': {
                 'title_filter': [
                     {'start': 0, 'length': 6}
@@ -423,10 +445,20 @@ class MeiliSearchResults(BaseSearchResults):
         # The simplest way is probably to len(str(item['_matchesInfo'])) which for the
         # above example returns a score of 386 and for the bottom result in my test set is
         # just 40.
-
-        # TODO: Implement `boost` on fields
         for item in results:
-            item['score'] = len(str(item['_matchesInfo']))
+            score = 0
+            for key in item['_matchesInfo']:
+                try:
+                    boost = item['boosts'].get(key, 1)
+                except Exception:
+                    boost = 1
+
+                if not boost:
+                    boost = 1
+
+                score += len(str(item['_matchesInfo'][key])) * boost
+
+            item['score'] = score
 
         sorted_results = sorted(results, key=itemgetter('score'), reverse=True)
         sorted_ids = [_['id'] for _ in sorted_results]
