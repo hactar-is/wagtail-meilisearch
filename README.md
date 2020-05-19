@@ -1,5 +1,7 @@
 # Wagtail MeiliSearch
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/4466c5245f53484885bc29fea02cb73a)](https://app.codacy.com/gh/hactar-is/wagtail-meilisearch?utm_source=github.com&utm_medium=referral&utm_content=hactar-is/wagtail-meilisearch&utm_campaign=Badge_Grade_Settings)
+
 This is a (beta) Wagtail search backend for the [MeiliSearch](https://github.com/meilisearch/MeiliSearch) search engine.
 
 
