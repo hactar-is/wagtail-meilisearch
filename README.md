@@ -7,6 +7,10 @@ This is a (beta) Wagtail search backend for the [MeiliSearch](https://github.com
 
 `poetry add wagtail_meilisearch` or `pip install wagtail_meilisearch`
 
+## Upgrading
+
+If you're upgrading MeiliSearch from 0.9.x to anything higher, you will need to destroy and re-create MeiliSearch's data.ms directory.
+
 ## Configuration
 
 See the [MeiliSearch docs](https://docs.meilisearch.com/guides/advanced_guides/installation.html#environment-variables-and-flags) for info on the values you want to add here.
@@ -152,6 +156,19 @@ If you want to help with the development I'd be more than happy. The vast majori
 * ~~Search results~~
 * ~~Add support for the autocomplete api~~
 * ~~Ensure we're getting results by relevance~~
+
+## Change Log
+
+#### 0.11.0
+* Compatibility changes to keep up with MeiliSearch and [meilisearch-python](https://github.com/meilisearch/meilisearch-python)
+* we've also switched to more closely tracking the major and minor version numbers of meilisearch-python so that it's easier to see compatibility at a glance.
+* Note: if you're upgrading from an old version of MeiliSearch you may need to destroy MeiliSearch's data directory and start with a clean index.
+
+#### 0.1.5
+* Adds the delta update strategy
+* Adds the SKIP_MODELS setting
+* Adds support for using boost on your search fields
+
 
 ### Thanks
 
