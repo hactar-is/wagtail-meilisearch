@@ -1,6 +1,6 @@
 Metadata-Version: 1.2
 Name: wagtail-meilisearch
-Version: 0.1.5a0
+Version: 0.1.6
 Summary: A MeiliSearch backend for Wagatil
 Home-page: https://github.com/hactar-is/wagtail-meilisearch
 Author: Hactar
@@ -153,9 +153,9 @@ Description: # Wagtail MeiliSearch
         ### TODO
         
         * Faceting
-        * Implement boosting in the sort algorithm
         * Write tests
         * Performance improvements
+        * ~~Implement boosting in the sort algorithm~~
         * ~~Implement stop words~~
         * ~~Search results~~
         * ~~Add support for the autocomplete api~~

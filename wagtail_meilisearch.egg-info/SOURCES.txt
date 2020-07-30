@@ -1,5 +1,4 @@
 README.md
-pyproject.toml
 setup.py
 wagtail_meilisearch/__init__.py
 wagtail_meilisearch/backend.py

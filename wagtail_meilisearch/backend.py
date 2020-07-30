@@ -76,7 +76,7 @@ class MeiliSearchModelIndex:
         try:
             self.client.get_index(label).get_settings()
         except Exception:
-            index = self.client.create_index(uid=label, primary_key='id')
+            index = self.client.create_index(uid=label, options={'primaryKey': 'id'})
             index.update_stop_words(self.backend.stop_words)
         else:
             index = self.client.get_index(label)
