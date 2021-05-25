@@ -141,6 +141,20 @@ WAGTAILSEARCH_BACKENDS = {
 ```
 
 
+## Query limits
+
+If you have a lot of DB documents, the final query to the database can be quite a heavy load. Meilisearch's relevance means that it's usually pretty safe to restrict the number of documents Meilisearch returns, and therefore the number of documents your app needs to get from the database. The limit is **per model**, so if your project has 10 page types and you set a limit of 1000, there's a possible 10000 results.
+
+```
+WAGTAILSEARCH_BACKENDS = {
+    'default': {
+        'BACKEND': 'wagtail_meilisearch.backend',
+        [...]
+        'QUERY_LIMIT': 1000
+    },
+}
+```
+
 ## Contributing
 
 If you want to help with the development I'd be more than happy. The vast majority of the heavy lifting is done by MeiliSearch itself, but there is a TODO list...

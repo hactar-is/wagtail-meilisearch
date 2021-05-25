@@ -55,14 +55,16 @@ class MeiliSearchModelIndex:
             model (django.db.Model): Should be able to pass any model here but it's most
                 likely to be a subclass of wagtail.core.models.Page
         """
+
         self.backend = backend
         self.client = backend.client
+        self.query_limit = backend.query_limit
         self.model = model
         self.name = model._meta.label
         self.index = self._set_index(model)
         self.search_params = {
-            'limit': 999999,
-            'matches': 'true'
+            'limit': self.query_limit,
+            'matches': True
         }
         self.update_strategy = backend.update_strategy
         self.update_delta = backend.update_delta
@@ -499,6 +501,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         self.stop_words = params.get('STOP_WORDS', STOP_WORDS)
         self.skip_models = params.get('SKIP_MODELS', [])
         self.update_strategy = params.get('UPDATE_STRATEGY', 'soft')
+        self.query_limit = params.get('QUERY_LIMIT', 999999)
         self.update_delta = None
         if self.update_strategy == 'delta':
             self.update_delta = params.get('UPDATE_DELTA', {'weeks': -1})
