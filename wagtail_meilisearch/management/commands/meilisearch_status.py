@@ -25,8 +25,6 @@ class Command(BaseCommand):
 
     help = "Print some stats about the meilisearch backend"
 
-
-
     def add_arguments(self, parser):
         # Named (optional) arguments
         parser.add_argument(

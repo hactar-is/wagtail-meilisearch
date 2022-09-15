@@ -173,6 +173,12 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ## Change Log
 
+#### 0.13.0
+* Updates to work with the latest versions of Meilisearch (v0.28.1) and meilisearch-python (^0.19.1)
+
+#### 0.12.0
+* Adds QUERY_LIMIT option to settings
+
 #### 0.11.0
 * Compatibility changes to keep up with MeiliSearch and [meilisearch-python](https://github.com/meilisearch/meilisearch-python)
 * we've also switched to more closely tracking the major and minor version numbers of meilisearch-python so that it's easier to see compatibility at a glance.

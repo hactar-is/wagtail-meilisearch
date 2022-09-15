@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wagtail-meilisearch"
-version = "0.12.0"
+version = "0.13.0"
 description = "A MeiliSearch backend for Wagatil"
 authors = ["Hactar <systems@hactar.is>"]
 
@@ -17,8 +17,6 @@ classifiers=[
     'Intended Audience :: Developers',
     'Operating System :: OS Independent',
     'Programming Language :: Python',
-    'Programming Language :: Python :: 3.6',
-    'Programming Language :: Python :: 3.7',
     'Programming Language :: Python :: 3.8',
     'Topic :: Internet :: WWW/HTTP',
     'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
@@ -28,14 +26,14 @@ include = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.6"
+python = "^3.8"
 
-arrow = "^0.15.0"
-meilisearch = "^0.14.2"
+arrow = "^1.2.3"
+meilisearch = "^0.19.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
 
 [build-system]
-requires = ["poetry>=0.12"]
-build-backend = "poetry.masonry.api"
+requires = ["poetry-core>=1.0.8"]
+build-backend = "poetry.core.masonry.api"

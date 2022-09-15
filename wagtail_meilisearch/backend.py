@@ -72,6 +72,16 @@ class MeiliSearchModelIndex:
             'created_at', 'updated_at', 'first_published_at', 'last_published_at'
         ]
 
+    def _update_stop_words(self, label):
+        try:
+            self.client.index(label).update_settings(
+                {
+                    'stopWords': self.backend.stop_words,
+                }
+            )
+        except Exception:
+            sys.stdout.write(f'WARN: Failed to update stop words on {label}\n')
+
     def _set_index(self, model):
         label = self._get_label(model)
         # if index doesn't exist, create
@@ -79,7 +89,7 @@ class MeiliSearchModelIndex:
             self.client.get_index(label).get_settings()
         except Exception:
             index = self.client.create_index(uid=label, options={'primaryKey': 'id'})
-            index.update_stop_words(self.backend.stop_words)
+            self._update_stop_words(label)
         else:
             index = self.client.get_index(label)
 
