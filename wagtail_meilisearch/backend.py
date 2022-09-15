@@ -64,7 +64,8 @@ class MeiliSearchModelIndex:
         self.index = self._set_index(model)
         self.search_params = {
             'limit': self.query_limit,
-            'matches': True
+            'attributesToRetrieve': ['id', ],
+            'showMatchesPosition': True
         }
         self.update_strategy = backend.update_strategy
         self.update_delta = backend.update_delta
@@ -413,9 +414,9 @@ class MeiliSearchResults(BaseSearchResults):
 
         for m in models:
             index = self.backend.get_index_for_model(m)
-            rv = index.search(terms)
+            result = index.search(terms)
             boosts = self._get_field_boosts(m)
-            for item in rv['hits']:
+            for item in result['hits']:
                 if item not in results:
                     item['boosts'] = boosts
                     results.append(item)
@@ -428,7 +429,7 @@ class MeiliSearchResults(BaseSearchResults):
             'boosts': {
                 'title': 10
             },
-            '_matchesInfo': {
+            '_matchesPosition': {
                 'title_filter': [
                     {'start': 0, 'length': 6}
                 ],
@@ -454,12 +455,12 @@ class MeiliSearchResults(BaseSearchResults):
         }
         """
         # Let's annotate this list working out some kind of basic score for each item
-        # The simplest way is probably to len(str(item['_matchesInfo'])) which for the
+        # The simplest way is probably to len(str(item['_matchesPosition'])) which for the
         # above example returns a score of 386 and for the bottom result in my test set is
         # just 40.
         for item in results:
             score = 0
-            for key in item['_matchesInfo']:
+            for key in item['_matchesPosition']:
                 try:
                     boost = item['boosts'].get(key, 1)
                 except Exception:
@@ -468,7 +469,7 @@ class MeiliSearchResults(BaseSearchResults):
                 if not boost:
                     boost = 1
 
-                score += len(str(item['_matchesInfo'][key])) * boost
+                score += len(str(item['_matchesPosition'][key])) * boost
 
             item['score'] = score
 
