@@ -174,6 +174,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 ## Change Log
 
 #### 0.14.0
+* Adds Django 4 support and compatibility with the latest meilisearch server (0.30.2) and meilisearch python (0.23.0)
+
+#### 0.14.0
 * Updates to work with the latest versions of Meilisearch (v0.28.1) and meilisearch-python (^0.19.1)
 
 #### 0.13.0
