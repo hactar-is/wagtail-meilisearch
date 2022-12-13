@@ -29,7 +29,7 @@ include = [
 python = "^3.8"
 
 arrow = "^1.2.3"
-meilisearch = "^0.19.1"
+meilisearch = "^0.23.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

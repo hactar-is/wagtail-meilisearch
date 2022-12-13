@@ -14,10 +14,15 @@ from wagtail.search.index import (
     get_indexed_models
 )
 from wagtail.search.utils import OR
-from django.utils.encoding import force_text
 from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
 )
+
+try:
+    from django.utils.encoding import force_text
+except ImportError:
+    from django.utils.encoding import force_str
+    force_text = force_str
 
 
 from .settings import STOP_WORDS
@@ -55,7 +60,6 @@ class MeiliSearchModelIndex:
             model (django.db.Model): Should be able to pass any model here but it's most
                 likely to be a subclass of wagtail.core.models.Page
         """
-
         self.backend = backend
         self.client = backend.client
         self.query_limit = backend.query_limit
@@ -247,10 +251,11 @@ class MeiliSearchModelIndex:
                 doc = self._create_document(self.model, item)
                 prepared.append(doc)
 
-            if self.update_strategy == 'soft' or self.update_strategy == 'delta':
-                self.index.update_documents(prepared)
-            else:
-                self.index.add_documents(prepared)
+            if len(prepared):
+                if self.update_strategy == 'soft' or self.update_strategy == 'delta':
+                    self.index.update_documents(prepared)
+                else:
+                    self.index.add_documents(prepared)
             del(chunk)
 
         return True
