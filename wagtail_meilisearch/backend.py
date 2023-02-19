@@ -29,10 +29,9 @@ from .settings import STOP_WORDS
 
 try:
     from cacheops import invalidate_model
-except ImportError:
-    pass
-else:
     USING_CACHEOPS = True
+except ImportError:
+    USING_CACHEOPS = False
 
 
 AUTOCOMPLETE_SUFFIX = '_ngrams'
