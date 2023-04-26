@@ -1,8 +1,10 @@
 import sys
+from consoler import console
 
 # stdlib
 from operator import itemgetter
 from functools import lru_cache
+from collections import OrderedDict
 
 # 3rd party
 import arrow
@@ -15,7 +17,8 @@ from wagtail.search.index import (
 )
 from wagtail.search.utils import OR
 from wagtail.search.backends.base import (
-    BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
+    BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler,
+    FilterFieldError
 )
 
 try:
@@ -97,10 +100,22 @@ class MeiliSearchModelIndex:
         else:
             index = self.client.get_index(label)
 
+        # Add filter / facet fields
+        filter_fields = ['content_type_id_filter']
+        for field in model.get_search_fields():
+            if isinstance(field, FilterField):
+                try:
+                    filter_fields.append(_get_field_mapping(field))
+                    # yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
+                except Exception:
+                    pass
+
+        index.update_filterable_attributes(filter_fields)
+
         return index
 
     def _get_label(self, model):
-        label = model._meta.label.replace('.', '-')
+        self.label = label = model._meta.label.replace('.', '-')
         return label
 
     def _rebuild(self):
@@ -191,6 +206,7 @@ class MeiliSearchModelIndex:
             dict: A dict representation of the model
         """
         doc_fields = dict(self._get_document_fields(model, item))
+        console.info(f"{model} : {doc_fields}")
         doc_fields.update(id=item.id)
         document = {}
         document.update(doc_fields)
@@ -293,8 +309,22 @@ class MeiliSearchModelIndex:
     def delete_item(self, obj):
         self.index.delete_document(obj.id)
 
-    def search(self, query):
-        return self.index.search(query, self.search_params)
+    def search(self, query, extras: dict = {}):
+        """Perform a search against a model index
+
+        Args:
+            query (str): The search term
+            extras (dict): key value pairs of extra data to send to the meilisearch backend
+
+        """
+        params = self.search_params
+        if len(extras):
+            params.update(**extras)
+
+        return self.index.search(query, params)
+
+    def __repr__(self):
+        return f"MeiliSearchModelIndex <{self.name}>"
 
     def __str__(self):
         return self.name
@@ -397,7 +427,50 @@ def get_descendant_models(model):
 
 
 class MeiliSearchResults(BaseSearchResults):
-    supports_facet = False
+
+    supports_facet = True
+
+    def facet(self, field_name):
+
+        qc = self.query_compiler
+        model = qc.queryset.model
+        models = get_descendant_models(model)
+        terms = qc.query.query_string
+        filter_field = f"{field_name}_filter"
+
+        results = OrderedDict()
+        for m in models:
+            index = self.backend.get_index_for_model(m)
+            filterable_fields = index.client.index(index.label).get_filterable_attributes()
+            if filter_field in filterable_fields:
+                result = index.search(
+                    terms,
+                    {
+                      'facets': [filter_field, ]
+                    }
+                )
+                try:
+                    res = result['facetDistribution'][filter_field]
+                except KeyError:
+                    pass
+                else:
+                    results.update(res)
+
+        # Sort the results
+        sorted_dict = OrderedDict(sorted(results.items(), key=lambda x:x[1], reverse=True))
+
+        return sorted_dict
+
+    def filter(self, field_name, filter_str):
+        if not field_name:
+            raise ValueError("You must specify a field_name")
+        if not filter_str:
+            raise ValueError("You must specify a filter_str")
+
+        filter_field = f"{field_name}_filter"
+        res = self._do_search(filter_field=filter_field, filter_str=filter_str)
+        return res
+
 
     def _get_field_boosts(self, model):
         boosts = {}
@@ -408,23 +481,60 @@ class MeiliSearchResults(BaseSearchResults):
 
         return boosts
 
-    def _do_search(self):
+    def _do_search(self, filter_field=None, filter_str=""):
         results = []
 
         qc = self.query_compiler
         model = qc.queryset.model
         models = get_descendant_models(model)
         terms = qc.query.query_string
+        result = None
 
         for m in models:
             index = self.backend.get_index_for_model(m)
-            result = index.search(terms)
-            boosts = self._get_field_boosts(m)
-            for item in result['hits']:
-                if item not in results:
-                    item['boosts'] = boosts
-                    results.append(item)
 
+            # Perform unfiltered search
+            if not filter_field and not filter_str:
+                result = index.search(terms)
+
+            else:
+                filterable_fields = index.client.index(index.label).get_filterable_attributes()
+                # console.info(f"filtered search of {m}")
+                # console.info(f"Looking for {filter_field} in {filterable_fields}")
+                if filter_field in filterable_fields:
+                    result = index.search(
+                        terms,
+                        {
+                          'filter': filter_str
+                        }
+                    )
+
+            if result:
+                boosts = self._get_field_boosts(m)
+                for item in result['hits']:
+                    if item not in results:
+                        item['boosts'] = boosts
+                        results.append(item)
+
+        sorted_ids = self._sort_results(results)
+        qc_result = self._sort_queryset(sorted_ids)
+        # Now we need to convert the list of IDs into a list of model instances
+        return qc_result
+
+    def _sort_queryset(self, sorted_ids):
+        # This piece of utter genius is borrowed wholesale from wagtail-whoosh after I spent
+        # several hours trying and failing to work out how to do this.
+        qc = self.query_compiler
+        if qc.order_by_relevance:
+            # Retrieve the results from the db, but preserve the order by score
+            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(sorted_ids)])
+            results = qc.queryset.filter(pk__in=sorted_ids).order_by(preserved_order)
+        else:
+            results = qc.queryset.filter(pk__in=sorted_ids)
+        results = results.distinct()[self.start:self.stop]
+        return results
+
+    def _sort_results(self, results):
         """At this point we have a list of results that each look something like this
         (with various fields snipped)...
 
@@ -458,7 +568,7 @@ class MeiliSearchResults(BaseSearchResults):
             }
         }
         """
-        # Let's annotate this list working out some kind of basic score for each item
+        # Let's annotate the list of results working out some kind of basic score for each item
         # The simplest way is probably to len(str(item['_matchesPosition'])) which for the
         # above example returns a score of 386 and for the bottom result in my test set is
         # just 40.
@@ -480,17 +590,7 @@ class MeiliSearchResults(BaseSearchResults):
         sorted_results = sorted(results, key=itemgetter('score'), reverse=True)
         sorted_ids = [_['id'] for _ in sorted_results]
 
-        # This piece of utter genius is borrowed wholesale from wagtail-whoosh after I spent
-        # several hours trying and failing to work out how to do this.
-        if qc.order_by_relevance:
-            # Retrieve the results from the db, but preserve the order by score
-            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(sorted_ids)])
-            results = qc.queryset.filter(pk__in=sorted_ids).order_by(preserved_order)
-        else:
-            results = qc.queryset.filter(pk__in=sorted_ids)
-        results = results.distinct()[self.start:self.stop]
-
-        return results
+        return sorted_ids
 
     def _do_count(self):
         return len(self._do_search())
