@@ -1,23 +1,24 @@
-import sys
-
 # stdlib
-from typing import Optional, List
+import sys
+from typing import List, Optional
 from operator import itemgetter
-from functools import lru_cache
 from collections import OrderedDict
 
 # 3rd party
 import meilisearch
-from consoler import console
 from django.apps import apps
 from django.db.models import Q, Case, When, QuerySet
-from wagtail.search.index import (
-    SearchField, class_is_indexed, get_indexed_models, FilterField,
-)
+from django.core.cache import cache
+from wagtail.search.index import FilterField, SearchField, class_is_indexed, get_indexed_models
 from wagtail.search.utils import OR
 from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler,
 )
+
+# Module
+from .index import DummyModelIndex, MeiliSearchModelIndex, timeit, _get_field_mapping  # noqa: F401
+from .settings import STOP_WORDS, DEFAULT_RANKING_RULES
+
 
 try:
     from django.utils.encoding import force_text
@@ -25,19 +26,17 @@ except ImportError:
     from django.utils.encoding import force_str
     force_text = force_str
 
-from .settings import STOP_WORDS, DEFAULT_RANKING_RULES
-from .index import MeiliSearchModelIndex, DummyModelIndex, _get_field_mapping, timeit
 
 
 class MeiliSearchRebuilder:
 
-    @timeit
+    # @timeit
     def __init__(self, model_index):
         self.index = model_index
         self.uid = self.index._get_label(self.index.model)
         self.dummy_index = DummyModelIndex()
 
-    @timeit
+    # @timeit
     def start(self):
         """This is the thing that starts off a rebuild of the search
         index. We offer three strategies, `hard`, `soft` and `delta`.
@@ -86,12 +85,12 @@ class MeiliSearchRebuilder:
 
 class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
 
-    @timeit
+    # @timeit
     def _process_lookup(self, field: FilterField, lookup: str, value: list) -> Q:
         # Also borrowed from wagtail-whoosh
         return Q(**{field.get_attname(self.queryset.model) + '__' + lookup: value})
 
-    @timeit
+    # @timeit
     def _connect_filters(self, filters: List[Q], connector: str, negated: bool) -> Optional[Q]:
         # Also borrowed from wagtail-whoosh
         if connector == 'AND':
@@ -109,24 +108,29 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
 
 class MeiliSearchAutocompleteQueryCompiler(MeiliSearchQueryCompiler):
 
-    @timeit
+    # @timeit
     def _get_fields_names(self):
         model = self.queryset.model
         for field in model.get_autocomplete_search_fields():
             yield _get_field_mapping(field)
 
 
-@lru_cache()
-@timeit
+# @timeit
 def get_descendant_models(model):
     """
     Borrowed from Wagtail-Whoosh
     Returns all descendants of a model
     e.g. for a search on Page, return [HomePage, ContentPage, Page] etc.
     """
-    descendant_models = [
-        other_model for other_model in apps.get_models() if issubclass(other_model, model)
-    ]
+    label = model._meta.label.replace('.', '-')
+    cache_key = f"meili_model_cache_{label}"
+    descendant_models = cache.get(cache_key)
+    if descendant_models is None:
+        descendant_models = [
+            other_model for other_model in apps.get_models() if issubclass(other_model, model)
+        ]
+        cache.set(cache_key, descendant_models)
+
     return descendant_models
 
 
@@ -134,18 +138,7 @@ class MeiliSearchResults(BaseSearchResults):
 
     supports_facet = True
 
-    def __init__(self, backend, query_compiler, prefetch_related=None):
-        self.backend = backend
-        self.query_compiler = query_compiler
-        self.prefetch_related = prefetch_related
-        self.start = 0
-        self.stop = None
-        self._results_cache = None
-        self._count_cache = None
-        self._score_field = None
-        super().__init__(backend, query_compiler, prefetch_related=prefetch_related)
-
-    @timeit
+    # @timeit
     def facet(self, field_name):
 
         qc = self.query_compiler
@@ -177,7 +170,7 @@ class MeiliSearchResults(BaseSearchResults):
 
         return sorted_dict
 
-    @timeit
+    # @timeit
     def filter(self, field_name, filter_str):
         if not field_name:
             msg = "You must specify a field_name"
@@ -190,7 +183,7 @@ class MeiliSearchResults(BaseSearchResults):
         res = self._do_search(filter_field=filter_field, filter_str=filter_str)
         return res
 
-    @timeit
+    # @timeit
     def _get_field_boosts(self, model):
         boosts = {}
         for field in model.search_fields:
@@ -199,7 +192,7 @@ class MeiliSearchResults(BaseSearchResults):
 
         return boosts
 
-    @timeit
+    # @timeit
     def _do_search(self, filter_field=None, filter_str=""):
         results = []
 
@@ -211,10 +204,7 @@ class MeiliSearchResults(BaseSearchResults):
         sorted_ids = []
         iterations = 0
 
-        # console.info("MODELS LEN: ", len(models))
-        # console.info(models)
         for m in models:
-            # console.warn(iterations)
             iterations += 1
             index = self.backend.get_index_for_model(m)
 
@@ -228,8 +218,6 @@ class MeiliSearchResults(BaseSearchResults):
 
             else:
                 filterable_fields = index.client.index(index.label).get_filterable_attributes()
-                # console.info(f"filtered search of {m}")
-                # console.info(f"Looking for {filter_field} in {filterable_fields}")
                 if filter_field in filterable_fields:
                     result = index.search(
                         terms,
@@ -258,7 +246,7 @@ class MeiliSearchResults(BaseSearchResults):
         # Now we need to convert the list of IDs into a list of model instances
         return qc_result
 
-    @timeit
+    # @timeit
     def _sort_queryset(self, sorted_ids):
         # This piece of utter genius is borrowed wholesale from wagtail-whoosh after I spent
         # several hours trying and failing to work out how to do this.
@@ -272,7 +260,7 @@ class MeiliSearchResults(BaseSearchResults):
         results = results.distinct()[self.start:self.stop]
         return results
 
-    @timeit
+    # @timeit
     def _sort_results(self, results):
         """At this point we have a list of results that each look something like this
         (with various fields snipped)...
@@ -336,7 +324,7 @@ class MeiliSearchResults(BaseSearchResults):
 
         return sorted_ids
 
-    @timeit
+    # @timeit
     def _do_count(self):
         return len(self._do_search())
 
@@ -366,8 +354,9 @@ class MeiliSearchBackend(BaseSearchBackend):
         self.update_delta = None
         if self.update_strategy == 'delta':
             self.update_delta = params.get('UPDATE_DELTA', {'weeks': -1})
+        self.index_registry = {}
 
-    @timeit
+    # @timeit
     def _refresh(self, uid, model):
         index = self.client.get_index(uid)
         index.delete()
@@ -375,21 +364,39 @@ class MeiliSearchBackend(BaseSearchBackend):
         return new_index
 
     def get_index_for_model(self, model):
-        return MeiliSearchModelIndex(self, model)
+        label = self._get_label(model)
 
-    @timeit
+        # See if it's in our registry
+        if label in self.index_registry:
+            return self.index_registry.get(label)
+
+        # See if it's in the cache
+        cache_key = f'meili_index_{label}'
+        index = cache.get(cache_key)
+        if index is None:
+            index = MeiliSearchModelIndex(self, model)
+            cache.set(cache_key, index)
+
+        self.index_registry[label] = index
+        return index
+
+    def _get_label(self, model):
+        label = model._meta.label.replace('.', '-')
+        return label
+
+    # @timeit
     def get_rebuilder(self):
         return None
 
-    @timeit
+    # @timeit
     def reset_index(self):
         raise NotImplementedError
 
-    @timeit
+    # @timeit
     def add_type(self, model):
         self.get_index_for_model(model).add_model(model)
 
-    @timeit
+    # @timeit
     def refresh_index(self):
         refreshed_indexes = []
         for model in get_indexed_models():
@@ -407,7 +414,7 @@ class MeiliSearchBackend(BaseSearchBackend):
     def delete(self, obj):
         self.get_index_for_model(type(obj)).delete_item(obj)
 
-    @timeit
+    # @timeit
     def _search(self, query_compiler_class, query, model_or_queryset, **kwargs):
         # Find model/queryset
         if isinstance(model_or_queryset, QuerySet):
@@ -435,7 +442,7 @@ class MeiliSearchBackend(BaseSearchBackend):
 
         return self.results_class(self, search_query)
 
-    @timeit
+    # @timeit
     def search(
             self, query, model_or_queryset, fields=None, operator=None,
             order_by_relevance=True, partial_match=True):
@@ -449,7 +456,7 @@ class MeiliSearchBackend(BaseSearchBackend):
             partial_match=partial_match,
         )
 
-    @timeit
+    # @timeit
     def autocomplete(
             self, query, model_or_queryset, fields=None, operator=None, order_by_relevance=True):
         if self.autocomplete_query_compiler_class is None:
