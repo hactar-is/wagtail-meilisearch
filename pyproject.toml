@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wagtail-meilisearch"
-version = "1.0rc2"
+version = "1.0rc3"
 description = "A MeiliSearch backend for Wagatil"
 authors = ["Hactar <systems@hactar.is>"]
 
