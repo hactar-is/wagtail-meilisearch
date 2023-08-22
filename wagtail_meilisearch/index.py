@@ -1,4 +1,5 @@
 import sys
+import time
 from consoler import console
 
 # stdlib
@@ -7,6 +8,7 @@ from functools import lru_cache
 
 # 3rd party
 import arrow
+from django.core.cache import cache
 from django.db.models import Model, Manager, QuerySet
 from wagtail.search.index import (
     FilterField, SearchField, RelatedFields, AutocompleteField,
@@ -37,6 +39,19 @@ def _get_field_mapping(field):
     return field.field_name
 
 
+def timeit(method):
+    """Decorator for timing the performance of a function.
+    """
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        # print('%2.2f sec %r (%r, %r)\n' % (te - ts, method.__name__, args, kw))
+        return result
+
+    return timed
+
+
 class MeiliSearchModelIndex:
 
     """Creats a working index for each model sent to it.
@@ -58,7 +73,7 @@ class MeiliSearchModelIndex:
         self.index = self._set_index(model)
         self.search_params = {
             'limit': self.query_limit,
-            'attributesToRetrieve': ['id'],
+            'attributesToRetrieve': ['id', 'first_published_at'],
             'showMatchesPosition': True,
         }
         self.update_strategy = backend.update_strategy
@@ -67,6 +82,7 @@ class MeiliSearchModelIndex:
             'created_at', 'updated_at', 'first_published_at', 'last_published_at',
         ]
 
+    @timeit
     def _update_stop_words(self, label):
         try:
             self.client.index(label).update_settings(
@@ -77,14 +93,30 @@ class MeiliSearchModelIndex:
         except Exception:
             sys.stdout.write(f'WARN: Failed to update stop words on {label}\n')
 
+    @timeit
+    def _update_ranking_rules(self, label):
+        console.info(f'_update_ranking_rules {label}')
+        try:
+            self.client.index(label).update_settings(
+                {
+                    'rankingRules': self.backend.ranking_rules,
+                },
+            )
+        except Exception:
+            sys.stdout.write(f'WARN: Failed to update ranking_rules on {label}\n')
+
+    @timeit
     def _set_index(self, model):
+        if hasattr(self, 'index') and self.index:
+            return self.index
+
         label = self._get_label(model)
         # if index doesn't exist, create
         try:
             self.client.get_index(label).get_settings()
         except Exception:
             index = self.client.create_index(uid=label, options={'primaryKey': 'id'})
-            self._update_stop_words(label)
+            self._apply_settings(label)
         else:
             index = self.client.get_index(label)
 
@@ -100,24 +132,39 @@ class MeiliSearchModelIndex:
 
         index.update_filterable_attributes(filter_fields)
 
+        self.index = index
+
         return index
 
+    @timeit
+    def _apply_settings(self, label):
+        self._update_stop_words(label)
+        self._update_ranking_rules(label)
+
+    @timeit
     def _get_label(self, model):
+        if hasattr(self, 'label') and self.label:
+            return self.label
+
         self.label = label = model._meta.label.replace('.', '-')
         return label
 
+    @timeit
     def _rebuild(self):
         self.index.delete()
         self._set_index(self.model)
 
+    @timeit
     def add_model(self, model):
         # Adding done on initialisation
         pass
 
+    @timeit
     def get_index_for_model(self, model):
         self._set_index(model)
         return self
 
+    @timeit
     def prepare_value(self, value):
         """Makes sure `value` is something we can save in the index.
 
@@ -140,13 +187,11 @@ class MeiliSearchModelIndex:
             return force_text(value())
         return force_text(value)
 
+    @timeit
     def _get_document_fields(self, model, item):
         """Borrowed from Wagtail-Whoosh
         Walks through the model's search fields and returns stuff the way the index is
         going to want it.
-
-        Todo:
-            * Make sure all of this is usable by MeiliSearch
 
         Args:
             model (db.Model): The model class we want the fields for
@@ -157,9 +202,9 @@ class MeiliSearchModelIndex:
         """
         for field in model.get_search_fields():
             if isinstance(field, (SearchField, FilterField, AutocompleteField)):
-                try:
+                try:  # noqa: SIM105
                     yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
-                except Exception:
+                except Exception:  # noqa: S110
                     pass
             if isinstance(field, RelatedFields):
                 value = field.get_value(item)
@@ -167,22 +212,23 @@ class MeiliSearchModelIndex:
                     qs = value.all()
                     for sub_field in field.fields:
                         sub_values = qs.values_list(sub_field.field_name, flat=True)
-                        try:
+                        try:  # noqa: SIM105
                             yield '{0}__{1}'.format(
                                 field.field_name, _get_field_mapping(sub_field)), \
                                 self.prepare_value(list(sub_values))
-                        except Exception:
+                        except Exception:  # noqa: S110
                             pass
                 if isinstance(value, Model):
                     for sub_field in field.fields:
-                        try:
+                        try:  # noqa: SIM105
                             yield '{0}__{1}'.format(
                                 field.field_name, _get_field_mapping(sub_field)),\
                                 self.prepare_value(sub_field.get_value(value))
-                        except Exception:
+                        except Exception:  # noqa: S110, PERF203
                             pass
 
     @lru_cache()
+    @timeit
     def _create_document(self, model, item):
         """Create a dict containing the fields we want to send to MeiliSearch
 
@@ -194,18 +240,19 @@ class MeiliSearchModelIndex:
             dict: A dict representation of the model
         """
         doc_fields = dict(self._get_document_fields(model, item))
-        console.info(f"{model} : {doc_fields}")
         doc_fields.update(id=item.id)
         document = {}
         document.update(doc_fields)
         return document
 
+    @timeit
     def refresh(self):
         # TODO: Work out what this method is supposed to do because nothing is documented properly
         # It might want something to do with `client.get_indexes()`, but who knows, there's no
         # docstrings anywhere in the reference classes.
         pass
 
+    @timeit
     def add_item(self, item):
         if self.update_strategy == 'delta':
             # We send it a list and get back a list, though that list might be empty
@@ -219,6 +266,7 @@ class MeiliSearchModelIndex:
         else:
             self.index.add_documents([doc])
 
+    @timeit
     def add_items(self, item_model, items):
         """Adds items in bulk to the index. If we're adding stuff through the `update_index`
         management command, we'll receive these in chunks of 1000.
@@ -263,12 +311,14 @@ class MeiliSearchModelIndex:
 
         return True
 
+    @timeit
     def _has_date_fields(self, obj):
         find = self.delta_fields
         fields = [_.name for _ in obj._meta.fields]
         rv = any(item in find for item in fields)
         return rv
 
+    @timeit
     def _check_deltas(self, objects: list) -> list:
         """Takes a list of objects and removes any where the last_published_at, first_published_at,
         created_at or updated_at are outside of the time delta.
@@ -294,9 +344,11 @@ class MeiliSearchModelIndex:
 
         return filtered
 
+    @timeit
     def delete_item(self, obj):
         self.index.delete_document(obj.id)
 
+    @timeit
     def search(self, query, extras: Optional[dict] = None):
         """Perform a search against a model index
 

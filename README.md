@@ -173,6 +173,10 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ## Change Log
 
+#### 1.0rc2
+* Adds faceting (this is undocument as yet while I work out if it's any good)
+* 
+
 #### 0.14.0
 * Adds Django 4 support and compatibility with the latest meilisearch server (0.30.2) and meilisearch python (0.23.0)
 

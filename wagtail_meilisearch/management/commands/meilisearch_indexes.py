@@ -28,33 +28,34 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         b = get_search_backend()
         stats = b.client.get_all_stats()
-        import ipdb; ipdb.set_trace()
+        print(stats)
         indexes = stats['indexes']
         print("*" * 80)
-        print(f"Index DB size: {human_readable_file_size(stats['databaseSize'])}")
+        print(f"Total DB size: {human_readable_file_size(stats['databaseSize'])}")
         print(f"Last updated: {arrow.get(stats['lastUpdate']).format('YYYY-MM-DD HH:mm:ss')}")
         if not len(indexes):
             print('No indexes created yet')
         else:
             print("Indexes:")
             for k, v in indexes.items():
-                model = k.replace('-', '.')
                 is_indexing = v['isIndexing']
-                if len(models):
-                    if model in models:
-                        if indexing:
-                            if is_indexing:
-                                self._print_index_stats(model, v)
-                        else:
-                            self._print_index_stats(model, v)
-                else:
-                    if indexing:
-                        if is_indexing:
-                            self._print_index_stats(model, v)
-                    else:
-                        self._print_index_stats(model, v)
+                index = b.client.get_index(k)
+                settings = index.get_settings()
+                settings.pop('stopWords')
+                print(f"{k} - indexing: {is_indexing}")
+                print(f"\t displayedAttributes: {settings.get('displayedAttributes')}")
+                print(f"\t searchableAttributes: {settings.get('searchableAttributes')}")
+                print(f"\t filterableAttributes: {settings.get('filterableAttributes')}")
+                print(f"\t sortableAttributes: {settings.get('sortableAttributes')}")
+                print(f"\t rankingRules: {settings.get('rankingRuless')}")
+                print(f"\t synonyms: {settings.get('synonyms')}")
+                print(f"\t distinctAttribute: {settings.get('distinctAttribute')}")
+                print(f"\t typoTolerance: {settings.get('typoTolerance')}")
+                print(f"\t faceting: {settings.get('faceting')}")
+                print(f"\t pagination: {settings.get('pagination')}")
 
-        print("*" * 80)
+                print('\n')
+                print("*" * 80)
 
     def _print_index_stats(self, model, v):
         print(f"{model}")

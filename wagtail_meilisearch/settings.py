@@ -25,5 +25,15 @@ STOP_WORDS = [
     "were", "what", "whatever", "when", "whence", "whenever", "where", "whereafter", "whereas",
     "whereby", "wherein", "whereupon", "wherever", "whether", "which", "while", "who", "whoever",
     "whole", "whom", "whose", "why", "will", "with", "within", "without", "would", "yet", "you",
-    "your", "yours", "yourself", "yourselves"
+    "your", "yours", "yourself", "yourselves",
+]
+
+
+DEFAULT_RANKING_RULES = [
+    "words",
+    "exactness",
+    "proximity",
+    "sort",
+    "attribute",
+    "typo",
 ]
