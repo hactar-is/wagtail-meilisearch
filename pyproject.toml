@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wagtail-meilisearch"
-version = "1.0rc1"
+version = "1.0rc2"
 description = "A MeiliSearch backend for Wagatil"
 authors = ["Hactar <systems@hactar.is>"]
 
@@ -37,3 +37,19 @@ pytest = "^5.2"
 [build-system]
 requires = ["poetry-core>=1.0.8"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff]
+select = [
+    "E", "F", "B", "DJ", "C90", "S", "COM", "DTZ", "EM",
+    "PT", "RET", "SIM", "TCH", "ARG", "PTH", "PERF"
+]
+target-version = "py38"  # Change this to match the project
+line-length = 100
+extend-exclude = ["tests", "*/migrations/*"]
+extend-ignore = ["E402", "RET504", "S101", "DJ012"]
+ignore-init-module-imports = true
+
+[tool.ruff.isort]
+combine-as-imports = true
+force-wrap-aliases = true

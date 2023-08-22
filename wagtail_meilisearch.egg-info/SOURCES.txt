@@ -1,0 +1,13 @@
+README.md
+setup.py
+wagtail_meilisearch/__init__.py
+wagtail_meilisearch/backend.py
+wagtail_meilisearch/settings.py
+wagtail_meilisearch.egg-info/PKG-INFO
+wagtail_meilisearch.egg-info/SOURCES.txt
+wagtail_meilisearch.egg-info/dependency_links.txt
+wagtail_meilisearch.egg-info/requires.txt
+wagtail_meilisearch.egg-info/top_level.txt
+wagtail_meilisearch/management/__init__.py
+wagtail_meilisearch/management/commands/__init__.py
+wagtail_meilisearch/management/commands/meilisearch_status.py
