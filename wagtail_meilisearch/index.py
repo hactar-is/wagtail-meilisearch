@@ -110,9 +110,10 @@ class MeiliSearchModelIndex:
             self.client.get_index(label).get_settings()
         except Exception:
             index = self.client.create_index(uid=label, options={'primaryKey': 'id'})
-            self._apply_settings(label)
         else:
             index = self.client.get_index(label)
+
+        self._apply_settings(label)
 
         # Add filter / facet fields
         filter_fields = ['content_type_id_filter']

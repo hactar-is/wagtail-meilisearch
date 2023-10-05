@@ -31,9 +31,9 @@ STOP_WORDS = [
 
 DEFAULT_RANKING_RULES = [
     "words",
+    "attribute",
     "exactness",
     "proximity",
     "sort",
-    "attribute",
     "typo",
 ]
