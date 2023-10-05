@@ -1,12 +1,13 @@
 # stdlib
-import sys
 import time
 from typing import Optional
 
 # 3rd party
 import arrow
+from django.core.cache import cache
 from django.db.models import Model, Manager, QuerySet
 from wagtail.search.index import FilterField, SearchField, RelatedFields, AutocompleteField
+from meilisearch.index import Index
 
 
 try:
@@ -47,12 +48,69 @@ def timeit(method):
     return timed
 
 
+class MeiliIndexRegistry():
+
+    """A registry of all the indexes we're using.
+    """
+
+    indexes: dict = {}
+
+    def __init__(self, backend, settings):
+        self.backend = backend
+        self.client = backend.client
+        self.settings = settings
+
+    def _get_label(self, model):
+        label = model._meta.label.replace('.', '-')
+        return label
+
+    def get_index_for_model(self, model):
+        """This gets called by the get_index_for_model in the backend which in turn is called by
+        update_index management command so needs to exist as a method on the backend.
+
+        Args:
+            model (Model): The model we're looking for the index for
+
+        Returns:
+            MeiliSearchModelIndex: the index for the model
+        """
+        label = self._get_label(model)
+
+        # See if it's in our registry
+        if label in self.indexes:
+            return self.indexes.get(label)
+
+        # See if it's in the cache
+        cache_key = f'meili_index_{label}'
+        index = cache.get(cache_key)
+        if index is None:
+            index = MeiliSearchModelIndex(
+                backend=self.backend,
+                model=model,
+                settings=self.settings,
+            )
+            cache.set(cache_key, index)
+
+        self.register(label, index)
+        return index
+
+    def register(self, label, index):
+        self.indexes[label] = index
+
+    def _refresh(self, uid, model):
+        index = self.client.get_index(uid)
+        index.delete()
+        new_index = self.get_index_for_model(model)
+        return new_index
+
+
+
 class MeiliSearchModelIndex:
 
     """Creats a working index for each model sent to it.
     """
 
-    def __init__(self, backend, model):
+    def __init__(self, backend, model, settings):
         """Initialise an index for `model`
 
         Args:
@@ -61,45 +119,25 @@ class MeiliSearchModelIndex:
                 likely to be a subclass of wagtail.core.models.Page
         """
         self.backend = backend
-        self.client = backend.client
-        self.query_limit = backend.query_limit
         self.model = model
+        self.settings = settings
+
+        self.client = backend.client
+        self.query_limit = settings.query_limit
         self.name = model._meta.label
+
         self.index = self._set_index(model)
         self.search_params = {
             'limit': self.query_limit,
             'attributesToRetrieve': ['id', 'first_published_at'],
             'showMatchesPosition': True,
         }
-        self.update_strategy = backend.update_strategy
-        self.update_delta = backend.update_delta
+        self.update_strategy = settings.update_strategy
+        self.update_delta = settings.update_delta
         self.delta_fields = [
             'created_at', 'updated_at', 'first_published_at', 'last_published_at',
         ]
 
-    # @timeit
-    def _update_stop_words(self, label):
-        try:
-            self.client.index(label).update_settings(
-                {
-                    'stopWords': self.backend.stop_words,
-                },
-            )
-        except Exception:
-            sys.stdout.write(f'WARN: Failed to update stop words on {label}\n')
-
-    # @timeit
-    def _update_ranking_rules(self, label):
-        try:
-            self.client.index(label).update_settings(
-                {
-                    'rankingRules': self.backend.ranking_rules,
-                },
-            )
-        except Exception:
-            sys.stdout.write(f'WARN: Failed to update ranking_rules on {label}\n')
-
-    # @timeit
     def _set_index(self, model):
         if hasattr(self, 'index') and self.index:
             return self.index
@@ -107,34 +145,14 @@ class MeiliSearchModelIndex:
         label = self._get_label(model)
         # if index doesn't exist, create
         try:
-            self.client.get_index(label).get_settings()
+            index = self.client.index(label)
         except Exception:
-            index = self.client.create_index(uid=label, options={'primaryKey': 'id'})
-        else:
-            index = self.client.get_index(label)
-
-        self._apply_settings(label)
-
-        # Add filter / facet fields
-        filter_fields = ['content_type_id_filter']
-        for field in model.get_search_fields():
-            if isinstance(field, FilterField):
-                try:  # noqa: SIM105
-                    filter_fields.append(_get_field_mapping(field))
-                    # yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
-                except Exception:  # noqa: S110
-                    pass
-
-        index.update_filterable_attributes(filter_fields)
+            task = Index.create(self.client.http.config, label, {'primaryKey': 'id'})
+            index = self.client.index(label)
 
         self.index = index
 
         return index
-
-    # @timeit
-    def _apply_settings(self, label):
-        self._update_stop_words(label)
-        self._update_ranking_rules(label)
 
     # @timeit
     def _get_label(self, model):

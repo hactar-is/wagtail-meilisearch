@@ -47,7 +47,7 @@ class Command(BaseCommand):
                 print(f"\t searchableAttributes: {settings.get('searchableAttributes')}")
                 print(f"\t filterableAttributes: {settings.get('filterableAttributes')}")
                 print(f"\t sortableAttributes: {settings.get('sortableAttributes')}")
-                print(f"\t rankingRules: {settings.get('rankingRuless')}")
+                print(f"\t rankingRules: {settings.get('rankingRules')}")
                 print(f"\t synonyms: {settings.get('synonyms')}")
                 print(f"\t distinctAttribute: {settings.get('distinctAttribute')}")
                 print(f"\t typoTolerance: {settings.get('typoTolerance')}")

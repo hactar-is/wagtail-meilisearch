@@ -16,8 +16,11 @@ from wagtail.search.backends.base import (
 )
 
 # Module
-from .index import DummyModelIndex, MeiliSearchModelIndex, timeit, _get_field_mapping  # noqa: F401
-from .settings import STOP_WORDS, DEFAULT_RANKING_RULES
+from .index import (
+    DummyModelIndex, MeiliSearchModelIndex, timeit, _get_field_mapping, MeiliIndexRegistry
+)
+from .defaults import STOP_WORDS, DEFAULT_RANKING_RULES
+from .settings import MeiliSettings
 
 
 try:
@@ -27,14 +30,15 @@ except ImportError:
     force_text = force_str
 
 
-
 class MeiliSearchRebuilder:
 
     # @timeit
     def __init__(self, model_index):
         self.index = model_index
         self.uid = self.index._get_label(self.index.model)
+        self.label = self.uid
         self.dummy_index = DummyModelIndex()
+        self.settings = model_index.settings
 
     # @timeit
     def start(self):
@@ -51,31 +55,23 @@ class MeiliSearchRebuilder:
         document. Once a large site is fully indexed, it should be pretty safe to switch to a
         `delta` strategy which would be the least CPU intensive of all.
         """
-        if self.index.model._meta.label in self.index.backend.skip_models:
-            sys.stdout.write(f'SKIPPING: {self.index.model._meta.label}\n')
+        model = self.index.model
+        if model._meta.label in self.settings.skip_models:
+            sys.stdout.write(f'SKIPPING: {model._meta.label}\n')
             return self.dummy_index
 
-        strategy = self.index.backend.update_strategy
+        strategy = self.settings.update_strategy
         if strategy == 'soft' or strategy == 'delta':
-            # SOFT UPDATE STRATEGY
-            index = self.index.backend.client.get_index(self.uid)
+            # SOFT / DELTA UPDATE STRATEGY
+            index = self.index.backend.get_index_for_model(model)
         else:
             # HARD UPDATE STRATEGY
-            old_index = self.index.backend.client.get_index(self.uid)
+            old_index = self.index.backend.get_index_for_model(model)
             old_index.delete_all_documents()
 
-        model = self.index.model
         index = self.index.backend.get_index_for_model(model)
 
-        boosts = {}
-        for field in model.search_fields:
-            if isinstance(field, SearchField):
-                boosts[field.field_name] = 0
-            if isinstance(field, SearchField) and hasattr(field, 'boost'):
-                boosts[field.field_name] = field.boost or 0
-
-        if len(boosts):
-            index.index.update_searchable_attributes(sorted(boosts, reverse=True))
+        self.settings.apply_settings(index=index)
 
         return index
 
@@ -240,8 +236,8 @@ class MeiliSearchResults(BaseSearchResults):
             #             results.append(item)
 
         if len(results):
-            sorted_ids = [_['id'] for _ in results]
-            # sorted_ids = self._sort_results(results)
+            # sorted_ids = [_['id'] for _ in results]
+            sorted_ids = self._sort_results(results)
         qc_result = self._sort_queryset(sorted_ids)
         # Now we need to convert the list of IDs into a list of model instances
         return qc_result
@@ -346,43 +342,24 @@ class MeiliSearchBackend(BaseSearchBackend):
             )
         except Exception:
             raise
-        self.stop_words = params.get('STOP_WORDS', STOP_WORDS)
-        self.skip_models = params.get('SKIP_MODELS', [])
-        self.update_strategy = params.get('UPDATE_STRATEGY', 'soft')
-        self.query_limit = params.get('QUERY_LIMIT', 999999)
-        self.ranking_rules = params.get('RANKING_RULES', DEFAULT_RANKING_RULES)
-        self.update_delta = None
-        if self.update_strategy == 'delta':
-            self.update_delta = params.get('UPDATE_DELTA', {'weeks': -1})
-        self.index_registry = {}
 
-    # @timeit
-    def _refresh(self, uid, model):
-        index = self.client.get_index(uid)
-        index.delete()
-        new_index = self.get_index_for_model(model)
-        return new_index
+        self.settings = MeiliSettings(params)
+        self.index_registry = MeiliIndexRegistry(
+            backend=self,
+            settings=self.settings,
+        )
 
     def get_index_for_model(self, model):
-        label = self._get_label(model)
+        """This gets called by the update_index management command and needs to exist
+        as a method on the backend.
 
-        # See if it's in our registry
-        if label in self.index_registry:
-            return self.index_registry.get(label)
+        Args:
+            model (Model): The model we're looking for the index for
 
-        # See if it's in the cache
-        cache_key = f'meili_index_{label}'
-        index = cache.get(cache_key)
-        if index is None:
-            index = MeiliSearchModelIndex(self, model)
-            cache.set(cache_key, index)
-
-        self.index_registry[label] = index
-        return index
-
-    def _get_label(self, model):
-        label = model._meta.label.replace('.', '-')
-        return label
+        Returns:
+            MeiliSearchModelIndex: the index for the model
+        """
+        return self.index_registry.get_index_for_model(model)
 
     # @timeit
     def get_rebuilder(self):
