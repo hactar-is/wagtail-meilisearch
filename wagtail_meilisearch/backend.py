@@ -47,6 +47,10 @@ def _get_field_mapping(field):
     return field.field_name
 
 
+def get_index_label(model):
+    return model._meta.label.replace('.', '-')
+
+
 class MeiliSearchModelIndex:
 
     """Creats a working index for each model sent to it.
@@ -62,15 +66,9 @@ class MeiliSearchModelIndex:
         """
         self.backend = backend
         self.client = backend.client
-        self.query_limit = backend.query_limit
         self.model = model
         self.name = model._meta.label
         self.index = self._set_index(model)
-        self.search_params = {
-            'limit': self.query_limit,
-            'attributesToRetrieve': ['id', ],
-            'showMatchesPosition': True
-        }
         self.update_strategy = backend.update_strategy
         self.update_delta = backend.update_delta
         self.delta_fields = [
@@ -88,7 +86,7 @@ class MeiliSearchModelIndex:
             sys.stdout.write(f'WARN: Failed to update stop words on {label}\n')
 
     def _set_index(self, model):
-        label = self._get_label(model)
+        label = get_index_label(model)
         # if index doesn't exist, create
         try:
             self.client.get_index(label).get_settings()
@@ -99,10 +97,6 @@ class MeiliSearchModelIndex:
             index = self.client.get_index(label)
 
         return index
-
-    def _get_label(self, model):
-        label = model._meta.label.replace('.', '-')
-        return label
 
     def _rebuild(self):
         self.index.delete()
@@ -295,7 +289,7 @@ class MeiliSearchModelIndex:
         self.index.delete_document(obj.id)
 
     def search(self, query):
-        return self.index.search(query, self.search_params)
+        return self.index.search(query, self.backend.search_params)
 
     def __str__(self):
         return self.name
@@ -318,7 +312,7 @@ class DummyModelIndex:
 class MeiliSearchRebuilder:
     def __init__(self, model_index):
         self.index = model_index
-        self.uid = self.index._get_label(self.index.model)
+        self.uid = get_index_label(self.index.model)
         self.dummy_index = DummyModelIndex()
 
     def start(self):
@@ -425,12 +419,9 @@ class MeiliSearchResults(BaseSearchResults):
         terms = self.query_string
 
         models_boosts = {}
-        models_search_params = {}
         for model in models:
-            index = self.backend.get_index_for_model(model)
-            label = index._get_label(model)
+            label = get_index_label(model)
             models_boosts[label] = self._get_field_boosts(model)
-            models_search_params[label] = index.search_params
 
         results = [
             {
@@ -441,9 +432,10 @@ class MeiliSearchResults(BaseSearchResults):
                 {
                     'indexUid': index_uid,
                     'q': terms,
-                    **search_params,
+                    **self.backend.search_params,
+                    'limit': 20,
                 }
-                for index_uid, search_params in models_search_params.items()
+                for index_uid in models_boosts
             ])['results']
             for item in items['hits']
         ]
@@ -520,7 +512,7 @@ class MeiliSearchResults(BaseSearchResults):
         models = self.models
         terms = self.query_string
         indexes_uids = [
-            self.backend.get_index_for_model(model)._get_label(model)
+            get_index_label(model)
             for model in models
         ]
         return sum([
@@ -558,6 +550,11 @@ class MeiliSearchBackend(BaseSearchBackend):
         self.skip_models = params.get('SKIP_MODELS', [])
         self.update_strategy = params.get('UPDATE_STRATEGY', 'soft')
         self.query_limit = params.get('QUERY_LIMIT', 999999)
+        self.search_params = {
+            'limit': self.query_limit,
+            'attributesToRetrieve': ['id'],
+            'showMatchesPosition': True
+        }
         self.update_delta = None
         if self.update_strategy == 'delta':
             self.update_delta = params.get('UPDATE_DELTA', {'weeks': -1})
