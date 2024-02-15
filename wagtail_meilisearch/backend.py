@@ -433,7 +433,6 @@ class MeiliSearchResults(BaseSearchResults):
                     'indexUid': index_uid,
                     'q': terms,
                     **self.backend.search_params,
-                    'limit': 20,
                 }
                 for index_uid in models_boosts
             ])['results']
