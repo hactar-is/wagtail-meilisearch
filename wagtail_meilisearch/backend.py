@@ -17,6 +17,7 @@ from wagtail.search.utils import OR
 from wagtail.search.backends.base import (
     BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
 )
+from wagtail.search.query import PlainText, Phrase, Fuzzy
 
 try:
     from django.utils.encoding import force_text
@@ -408,22 +409,44 @@ class MeiliSearchResults(BaseSearchResults):
 
         return boosts
 
+    @property
+    def models(self):
+        return get_descendant_models(self.query_compiler.queryset.model)
+
+    @property
+    def query_string(self):
+        query = self.query_compiler.query
+        if isinstance(query, (PlainText, Phrase, Fuzzy)):
+            return query.query_string
+        return ''
+
     def _do_search(self):
-        results = []
+        models = self.models
+        terms = self.query_string
 
-        qc = self.query_compiler
-        model = qc.queryset.model
-        models = get_descendant_models(model)
-        terms = qc.query.query_string
+        models_boosts = {}
+        models_search_params = {}
+        for model in models:
+            index = self.backend.get_index_for_model(model)
+            label = index._get_label(model)
+            models_boosts[label] = self._get_field_boosts(model)
+            models_search_params[label] = index.search_params
 
-        for m in models:
-            index = self.backend.get_index_for_model(m)
-            result = index.search(terms)
-            boosts = self._get_field_boosts(m)
-            for item in result['hits']:
-                if item not in results:
-                    item['boosts'] = boosts
-                    results.append(item)
+        results = [
+            {
+                **item,
+                'boosts': models_boosts[items['indexUid']]
+            }
+            for items in self.backend.client.multi_search([
+                {
+                    'indexUid': index_uid,
+                    'q': terms,
+                    **search_params,
+                }
+                for index_uid, search_params in models_search_params.items()
+            ])['results']
+            for item in items['hits']
+        ]
 
         """At this point we have a list of results that each look something like this
         (with various fields snipped)...
@@ -480,20 +503,38 @@ class MeiliSearchResults(BaseSearchResults):
         sorted_results = sorted(results, key=itemgetter('score'), reverse=True)
         sorted_ids = [_['id'] for _ in sorted_results]
 
+        qc = self.query_compiler
+        window_sorted_ids = sorted_ids[self.start:self.stop]
+        results = qc.queryset.filter(pk__in=window_sorted_ids)
+
         # This piece of utter genius is borrowed wholesale from wagtail-whoosh after I spent
         # several hours trying and failing to work out how to do this.
         if qc.order_by_relevance:
             # Retrieve the results from the db, but preserve the order by score
-            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(sorted_ids)])
-            results = qc.queryset.filter(pk__in=sorted_ids).order_by(preserved_order)
-        else:
-            results = qc.queryset.filter(pk__in=sorted_ids)
-        results = results.distinct()[self.start:self.stop]
+            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(window_sorted_ids)])
+            results = results.order_by(preserved_order)
 
-        return results
+        return results.distinct()
 
     def _do_count(self):
-        return len(self._do_search())
+        models = self.models
+        terms = self.query_string
+        indexes_uids = [
+            self.backend.get_index_for_model(model)._get_label(model)
+            for model in models
+        ]
+        return sum([
+            results['totalHits']
+            for results in self.backend.client.multi_search([
+                {
+                    'indexUid': index_uid,
+                    'q': terms,
+                    'attributesToRetrieve': [],
+                    'hitsPerPage': 0,
+                }
+                for index_uid in indexes_uids
+            ])['results']
+        ])
 
 
 class MeiliSearchBackend(BaseSearchBackend):
