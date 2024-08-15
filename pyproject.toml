@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wagtail-meilisearch"
-version = "0.15.0"
+version = "0.15.2"
 description = "A MeiliSearch backend for Wagatil"
 authors = ["Hactar <systems@hactar.is>"]
 
@@ -29,7 +29,7 @@ include = [
 python = "^3.8"
 
 arrow = "^1.2.3"
-meilisearch = "^0.23.0"
+meilisearch = "^0.25.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
