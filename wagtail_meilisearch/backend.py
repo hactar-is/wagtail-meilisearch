@@ -27,6 +27,7 @@ except ImportError:
 
 
 from .settings import STOP_WORDS
+import contextlib
 
 try:
     from cacheops import invalidate_model
@@ -49,6 +50,26 @@ def _get_field_mapping(field):
 
 def get_index_label(model):
     return model._meta.label.replace('.', '-')
+
+
+@lru_cache()
+def _cacheable_create_document(doc_fields, item):
+    """Create a dict containing the fields we want to send to MeiliSearch.
+
+    This lives outside of the class due to the use of @lru_cache, see:
+    https://docs.astral.sh/ruff/rules/cached-instance-method/
+
+    Args:
+        doc_fields (dict): Description
+        item (db.Model): The model instance we're indexing
+
+        Returns:
+            dict: A dict representation of the model
+    """
+    doc_fields.update(id=item.id)
+    document = {}
+    document.update(doc_fields)
+    return document
 
 
 class MeiliSearchModelIndex:
@@ -149,32 +170,25 @@ class MeiliSearchModelIndex:
         """
         for field in model.get_search_fields():
             if isinstance(field, (SearchField, FilterField, AutocompleteField)):
-                try:
+                with contextlib.suppress(Exception):
                     yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
-                except Exception:
-                    pass
             if isinstance(field, RelatedFields):
                 value = field.get_value(item)
                 if isinstance(value, (Manager, QuerySet)):
                     qs = value.all()
                     for sub_field in field.fields:
                         sub_values = qs.values_list(sub_field.field_name, flat=True)
-                        try:
+                        with contextlib.suppress(Exception):
                             yield '{0}__{1}'.format(
                                 field.field_name, _get_field_mapping(sub_field)), \
                                 self.prepare_value(list(sub_values))
-                        except Exception:
-                            pass
                 if isinstance(value, Model):
                     for sub_field in field.fields:
-                        try:
+                        with contextlib.suppress(Exception):
                             yield '{0}__{1}'.format(
                                 field.field_name, _get_field_mapping(sub_field)),\
                                 self.prepare_value(sub_field.get_value(value))
-                        except Exception:
-                            pass
 
-    @lru_cache()
     def _create_document(self, model, item):
         """Create a dict containing the fields we want to send to MeiliSearch
 
@@ -186,9 +200,7 @@ class MeiliSearchModelIndex:
             dict: A dict representation of the model
         """
         doc_fields = dict(self._get_document_fields(model, item))
-        doc_fields.update(id=item.id)
-        document = {}
-        document.update(doc_fields)
+        document = _cacheable_create_document(doc_fields, item)
         return document
 
     def refresh(self):
@@ -229,10 +241,8 @@ class MeiliSearchModelIndex:
         # Ensure we're not indexing something stale from the cache
         # This also stops redis from overloading during the indexing
         if USING_CACHEOPS is True:
-            try:
+            with contextlib.suppress(Exception):
                 invalidate_model(item_model)
-            except Exception:
-                pass
 
         # split items into chunks of 100
         chunks = [items[x:x + 100] for x in range(0, len(items), 100)]
@@ -397,9 +407,8 @@ class MeiliSearchResults(BaseSearchResults):
     def _get_field_boosts(self, model):
         boosts = {}
         for field in model.search_fields:
-            if isinstance(field, SearchField):
-                if hasattr(field, 'boost'):
-                    boosts[field.field_name] = field.boost
+            if isinstance(field, SearchField) and hasattr(field, 'boost'):
+                boosts[field.field_name] = field.boost
 
         return boosts
 
@@ -502,7 +511,9 @@ class MeiliSearchResults(BaseSearchResults):
         # several hours trying and failing to work out how to do this.
         if qc.order_by_relevance:
             # Retrieve the results from the db, but preserve the order by score
-            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(window_sorted_ids)])
+            preserved_order = Case(
+                *[When(pk=pk, then=pos) for pos, pk in enumerate(window_sorted_ids)],
+            )
             results = results.order_by(preserved_order)
 
         return results.distinct()
@@ -593,7 +604,7 @@ class MeiliSearchBackend(BaseSearchBackend):
     def delete(self, obj):
         self.get_index_for_model(type(obj)).delete_item(obj)
 
-    def _search(self, query_compiler_class, query, model_or_queryset, partial_match, **kwargs):
+    def _search(self, query_compiler_class, query, model_or_queryset, partial_match, **kwargs):  # noqa: ARG002
         # Find model/queryset
         if isinstance(model_or_queryset, QuerySet):
             model = model_or_queryset.model
@@ -636,7 +647,8 @@ class MeiliSearchBackend(BaseSearchBackend):
     def autocomplete(
             self, query, model_or_queryset, fields=None, operator=None, order_by_relevance=True):
         if self.autocomplete_query_compiler_class is None:
-            raise NotImplementedError("This search backend does not support the autocomplete API")
+            msg = "This search backend does not support the autocomplete API"
+            raise NotImplementedError(msg)
 
         return self._search(
             self.autocomplete_query_compiler_class,

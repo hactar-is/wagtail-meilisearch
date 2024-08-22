@@ -173,6 +173,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ## Change Log
 
+#### 0.16.0
+* Thanks to @BertrandBordage, a massive speed improvement through using the /multi-search endpoint introduced in Meilisearch 1.1.0
+
 #### 0.14.0
 * Adds Django 4 support and compatibility with the latest meilisearch server (0.30.2) and meilisearch python (0.23.0)
 
