@@ -11,12 +11,13 @@ from django.apps import apps
 from django.db.models import Q, Case, When, Model, Manager, QuerySet
 from wagtail.search.index import (
     FilterField, SearchField, RelatedFields, AutocompleteField, class_is_indexed,
-    get_indexed_models
+    get_indexed_models,
 )
 from wagtail.search.utils import OR
 from wagtail.search.backends.base import (
-    BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler
+    BaseSearchBackend, BaseSearchResults, EmptySearchResults, BaseSearchQueryCompiler,
 )
+from wagtail.search.query import PlainText, Phrase, Fuzzy
 
 try:
     from django.utils.encoding import force_text
@@ -41,9 +42,13 @@ FILTER_SUFFIX = '_filter'
 def _get_field_mapping(field):
     if isinstance(field, FilterField):
         return field.field_name + FILTER_SUFFIX
-    elif isinstance(field, AutocompleteField):
+    if isinstance(field, AutocompleteField):
         return field.field_name + AUTOCOMPLETE_SUFFIX
     return field.field_name
+
+
+def get_index_label(model):
+    return model._meta.label.replace('.', '-')
 
 
 class MeiliSearchModelIndex:
@@ -57,23 +62,17 @@ class MeiliSearchModelIndex:
         Args:
             backend (MeiliSearchBackend): A backend instance
             model (django.db.Model): Should be able to pass any model here but it's most
-                likely to be a subclass of wagtail.core.models.Page
+                likely to be a subclass of wagtail.models.Page
         """
         self.backend = backend
         self.client = backend.client
-        self.query_limit = backend.query_limit
         self.model = model
         self.name = model._meta.label
         self.index = self._set_index(model)
-        self.search_params = {
-            'limit': self.query_limit,
-            'attributesToRetrieve': ['id', ],
-            'showMatchesPosition': True
-        }
         self.update_strategy = backend.update_strategy
         self.update_delta = backend.update_delta
         self.delta_fields = [
-            'created_at', 'updated_at', 'first_published_at', 'last_published_at'
+            'created_at', 'updated_at', 'first_published_at', 'last_published_at',
         ]
 
     def _update_stop_words(self, label):
@@ -81,13 +80,13 @@ class MeiliSearchModelIndex:
             self.client.index(label).update_settings(
                 {
                     'stopWords': self.backend.stop_words,
-                }
+                },
             )
         except Exception:
             sys.stdout.write(f'WARN: Failed to update stop words on {label}\n')
 
     def _set_index(self, model):
-        label = self._get_label(model)
+        label = get_index_label(model)
         # if index doesn't exist, create
         try:
             self.client.get_index(label).get_settings()
@@ -98,10 +97,6 @@ class MeiliSearchModelIndex:
             index = self.client.get_index(label)
 
         return index
-
-    def _get_label(self, model):
-        label = model._meta.label.replace('.', '-')
-        return label
 
     def _rebuild(self):
         self.index.delete()
@@ -205,7 +200,7 @@ class MeiliSearchModelIndex:
     def add_item(self, item):
         if self.update_strategy == 'delta':
             # We send it a list and get back a list, though that list might be empty
-            checked = self._check_deltas([item, ])
+            checked = self._check_deltas([item])
             if len(checked):
                 item = checked[0]
 
@@ -255,7 +250,7 @@ class MeiliSearchModelIndex:
                     self.index.update_documents(prepared)
                 else:
                     self.index.add_documents(prepared)
-            del(chunk)
+            del (chunk)
 
         return True
 
@@ -294,7 +289,7 @@ class MeiliSearchModelIndex:
         self.index.delete_document(obj.id)
 
     def search(self, query):
-        return self.index.search(query, self.search_params)
+        return self.index.search(query, self.backend.search_params)
 
     def __str__(self):
         return self.name
@@ -317,7 +312,7 @@ class DummyModelIndex:
 class MeiliSearchRebuilder:
     def __init__(self, model_index):
         self.index = model_index
-        self.uid = self.index._get_label(self.index.model)
+        self.uid = get_index_label(self.index.model)
         self.dummy_index = DummyModelIndex()
 
     def start(self):
@@ -368,7 +363,7 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
         elif connector == 'OR':
             q = OR([Q(fil) for fil in filters])
         else:
-            return
+            return None
 
         if negated:
             q = ~q
@@ -408,22 +403,41 @@ class MeiliSearchResults(BaseSearchResults):
 
         return boosts
 
+    @property
+    def models(self):
+        return get_descendant_models(self.query_compiler.queryset.model)
+
+    @property
+    def query_string(self):
+        query = self.query_compiler.query
+        if isinstance(query, (PlainText, Phrase, Fuzzy)):
+            return query.query_string
+        return ''
+
     def _do_search(self):
-        results = []
+        models = self.models
+        terms = self.query_string
 
-        qc = self.query_compiler
-        model = qc.queryset.model
-        models = get_descendant_models(model)
-        terms = qc.query.query_string
+        models_boosts = {}
+        for model in models:
+            label = get_index_label(model)
+            models_boosts[label] = self._get_field_boosts(model)
 
-        for m in models:
-            index = self.backend.get_index_for_model(m)
-            result = index.search(terms)
-            boosts = self._get_field_boosts(m)
-            for item in result['hits']:
-                if item not in results:
-                    item['boosts'] = boosts
-                    results.append(item)
+        results = [
+            {
+                **item,
+                'boosts': models_boosts[items['indexUid']],
+            }
+            for items in self.backend.client.multi_search([
+                {
+                    'indexUid': index_uid,
+                    'q': terms,
+                    **self.backend.search_params,
+                }
+                for index_uid in models_boosts
+            ])['results']
+            for item in items['hits']
+        ]
 
         """At this point we have a list of results that each look something like this
         (with various fields snipped)...
@@ -480,20 +494,38 @@ class MeiliSearchResults(BaseSearchResults):
         sorted_results = sorted(results, key=itemgetter('score'), reverse=True)
         sorted_ids = [_['id'] for _ in sorted_results]
 
+        qc = self.query_compiler
+        window_sorted_ids = sorted_ids[self.start:self.stop]
+        results = qc.queryset.filter(pk__in=window_sorted_ids)
+
         # This piece of utter genius is borrowed wholesale from wagtail-whoosh after I spent
         # several hours trying and failing to work out how to do this.
         if qc.order_by_relevance:
             # Retrieve the results from the db, but preserve the order by score
-            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(sorted_ids)])
-            results = qc.queryset.filter(pk__in=sorted_ids).order_by(preserved_order)
-        else:
-            results = qc.queryset.filter(pk__in=sorted_ids)
-        results = results.distinct()[self.start:self.stop]
+            preserved_order = Case(*[When(pk=pk, then=pos) for pos, pk in enumerate(window_sorted_ids)])
+            results = results.order_by(preserved_order)
 
-        return results
+        return results.distinct()
 
     def _do_count(self):
-        return len(self._do_search())
+        models = self.models
+        terms = self.query_string
+        indexes_uids = [
+            get_index_label(model)
+            for model in models
+        ]
+        return sum([
+            results['totalHits']
+            for results in self.backend.client.multi_search([
+                {
+                    'indexUid': index_uid,
+                    'q': terms,
+                    'attributesToRetrieve': [],
+                    'hitsPerPage': 0,
+                }
+                for index_uid in indexes_uids
+            ])['results']
+        ])
 
 
 class MeiliSearchBackend(BaseSearchBackend):
@@ -509,7 +541,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         try:
             self.client = meilisearch.Client(
                 '{}:{}'.format(self.params['HOST'], self.params['PORT']),
-                self.params['MASTER_KEY']
+                self.params['MASTER_KEY'],
             )
         except Exception:
             raise
@@ -517,6 +549,11 @@ class MeiliSearchBackend(BaseSearchBackend):
         self.skip_models = params.get('SKIP_MODELS', [])
         self.update_strategy = params.get('UPDATE_STRATEGY', 'soft')
         self.query_limit = params.get('QUERY_LIMIT', 999999)
+        self.search_params = {
+            'limit': self.query_limit,
+            'attributesToRetrieve': ['id'],
+            'showMatchesPosition': True,
+        }
         self.update_delta = None
         if self.update_strategy == 'delta':
             self.update_delta = params.get('UPDATE_DELTA', {'weeks': -1})
@@ -556,7 +593,7 @@ class MeiliSearchBackend(BaseSearchBackend):
     def delete(self, obj):
         self.get_index_for_model(type(obj)).delete_item(obj)
 
-    def _search(self, query_compiler_class, query, model_or_queryset, **kwargs):
+    def _search(self, query_compiler_class, query, model_or_queryset, partial_match, **kwargs):
         # Find model/queryset
         if isinstance(model_or_queryset, QuerySet):
             model = model_or_queryset.model
@@ -575,7 +612,7 @@ class MeiliSearchBackend(BaseSearchBackend):
 
         # Search
         search_query = query_compiler_class(
-            queryset, query, **kwargs
+            queryset, query, **kwargs,
         )
 
         # Check the query
