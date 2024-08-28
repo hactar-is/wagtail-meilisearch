@@ -165,6 +165,7 @@ If you want to help with the development I'd be more than happy. The vast majori
 * Faceting
 * Write tests
 * Performance improvements
+* Make use of the async in meilisearch-python
 * ~~Implement boosting in the sort algorithm~~
 * ~~Implement stop words~~
 * ~~Search results~~
@@ -172,6 +173,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 * ~~Ensure we're getting results by relevance~~
 
 ## Change Log
+
+#### 0.17.0
+* A few small performance and reliability improvements, and a lot of refactoring of the code into multiple files to make future development a bit simpler.
 
 #### 0.16.0
 * Thanks to @BertrandBordage, a massive speed improvement through using the /multi-search endpoint introduced in Meilisearch 1.1.0
