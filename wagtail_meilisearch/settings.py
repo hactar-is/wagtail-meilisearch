@@ -25,5 +25,90 @@ STOP_WORDS = [
     "were", "what", "whatever", "when", "whence", "whenever", "where", "whereafter", "whereas",
     "whereby", "wherein", "whereupon", "wherever", "whether", "which", "while", "who", "whoever",
     "whole", "whom", "whose", "why", "will", "with", "within", "without", "would", "yet", "you",
-    "your", "yours", "yourself", "yourselves"
+    "your", "yours", "yourself", "yourselves",
 ]
+
+# Suffixes used for field mapping
+AUTOCOMPLETE_SUFFIX = '_ngrams'
+FILTER_SUFFIX = '_filter'
+
+# Default search parameters
+DEFAULT_SEARCH_PARAMS = {
+    'limit': 100,
+    'offset': 0,
+    'attributesToRetrieve': ['*'],
+    'attributesToCrop': None,
+    'cropLength': 200,
+    'attributesToHighlight': None,
+    'filters': None,
+    'matches': False,
+}
+
+# Default update strategy
+DEFAULT_UPDATE_STRATEGY = 'soft'
+
+# Default update delta (used when update strategy is 'delta')
+DEFAULT_UPDATE_DELTA = {'weeks': -1}
+
+# Maximum number of results to return in a single query
+MAX_QUERY_LIMIT = 1000
+
+# Default host and port for MeiliSearch
+DEFAULT_MEILISEARCH_HOST = 'http://127.0.0.1'
+DEFAULT_MEILISEARCH_PORT = 7700
+
+# Timeout for MeiliSearch operations (in seconds)
+MEILISEARCH_TIMEOUT = 5
+
+# Batch size for bulk operations
+BULK_BATCH_SIZE = 1000
+
+# Field boost defaults
+DEFAULT_FIELD_BOOST = 1
+TITLE_BOOST = 2
+CONTENT_BOOST = 1.5
+
+# Faceting settings
+MAX_FACET_VALUES = 100
+
+# Relevance settings
+MIN_WORD_LENGTH = 3
+FUZZY_DISTANCE = 2
+
+# Index prefix (useful for multi-environment setups)
+INDEX_PREFIX = ''
+
+# Models to skip during indexing
+SKIP_MODELS = []
+
+# Custom analyzers
+CUSTOM_ANALYZERS = {}
+
+# Language-specific settings
+LANGUAGE_SPECIFIC_SETTINGS = {
+    'en': {
+        'stopWords': STOP_WORDS,
+        'synonyms': {},
+    },
+    # Add other languages as needed
+}
+
+# MeiliSearch task settings
+TASK_WAIT_TIMEOUT = 60  # seconds
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'wagtail.search.backends.meilisearch': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+    },
+}
