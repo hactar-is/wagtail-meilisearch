@@ -22,6 +22,7 @@ class MeiliSearchRebuilder:
         Returns:
             The appropriate index object for further operations.
         """
+        model = self.index.model
         if self.index.model._meta.label in self.index.backend.skip_models:
             sys.stdout.write(f'SKIPPING: {self.index.model._meta.label}\n')
             return self.dummy_index
@@ -30,10 +31,10 @@ class MeiliSearchRebuilder:
 
         if strategy == 'soft' or strategy == 'delta':
             # Soft update strategy
-            index = self.index.backend.client.get_index(self.uid)
+            index = self.index.backend.get_index_for_model(model)
         else:
             # Hard update strategy
-            old_index = self.index.backend.client.get_index(self.uid)
+            old_index = self.index.backend.get_index_for_model(model)
             old_index.delete_all_documents()
 
         model = self.index.model

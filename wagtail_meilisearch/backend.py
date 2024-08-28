@@ -1,5 +1,3 @@
-import asyncio
-
 import meilisearch
 from django.db.models import QuerySet
 from django.utils.functional import cached_property
@@ -153,17 +151,6 @@ class MeiliSearchBackend(BaseSearchBackend):
         """
         self.get_index_for_model(type(obj)).add_item(obj)
 
-    async def add_bulk_async(self, model, obj_list):
-        """
-        Add multiple objects to the index asynchronously.
-
-        Args:
-            model: The model of the objects being added.
-            obj_list (list): The list of objects to add to the index.
-        """
-        index = self.get_index_for_model(model)
-        await index.add_items_async(model, obj_list)
-
     def add_bulk(self, model, obj_list):
         """
         Add multiple objects to the index.
@@ -172,10 +159,8 @@ class MeiliSearchBackend(BaseSearchBackend):
             model: The model of the objects being added.
             obj_list (list): The list of objects to add to the index.
         """
-        from consoler import console
-
-        console.info("add_bulk")
-        asyncio.run(self.add_bulk_async(model, obj_list))
+        index = self.get_index_for_model(model)
+        index.add_items(model, obj_list)
 
     def delete(self, obj):
         """

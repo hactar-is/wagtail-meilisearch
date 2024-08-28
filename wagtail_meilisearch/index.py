@@ -1,8 +1,10 @@
 import contextlib
 import sys
 
+from requests.exceptions import HTTPError
 import arrow
 from django.utils.functional import cached_property
+from meilisearch.index import Index
 
 from .utils import get_document_fields, get_index_label, weak_lru
 
@@ -60,7 +62,7 @@ class MeiliSearchModelIndex:
         except Exception:
             sys.stdout.write(f"WARN: Failed to update stop words on {label}\n")
 
-    @weak_lru()
+    # @weak_lru()
     def _get_index_settings(self, label):
         """
         Get the settings for the index.
@@ -87,15 +89,27 @@ class MeiliSearchModelIndex:
         Returns:
             Index: The MeiliSearch index object.
         """
-        label = get_index_label(model)
+        if hasattr(self, 'index') and self.index:
+            return self.index
+
+        label = self._get_label(model)
+        # if index doesn't exist, create
         try:
-            self._get_index_settings(label)
-        except MeiliIndexError:
-            index = self.client.create_index(uid=label, options={"primaryKey": "id"})
-            self._update_stop_words(label)
-        else:
-            index = self.client.get_index(label)
+            index = self.client.index(label)
+        except HTTPError:
+            task = Index.create(self.client.http.config, label, {'primaryKey': 'id'})
+            index = self.client.index(label)
+
+        self.index = index
+
         return index
+
+    def _get_label(self, model):
+        if hasattr(self, 'label') and self.label:
+            return self.label
+
+        self.label = label = model._meta.label.replace('.', '-')
+        return label
 
     def _rebuild(self):
         """Rebuild the index by deleting and recreating it."""
@@ -195,13 +209,12 @@ class MeiliSearchModelIndex:
             if self.update_strategy == "delta":
                 chunk = self._check_deltas(chunk)
             prepared = [self._create_document(self.model, item) for item in chunk]
-
-            if prepared:
-                if self.update_strategy in ["soft", "delta"]:
-                    self.index.update_documents(prepared)
-                else:
-                    self.index.add_documents(prepared)
-
+            with contextlib.suppress(Exception):
+                if prepared:
+                    if self.update_strategy in ["soft", "delta"]:
+                        self.index.update_documents(prepared)
+                    else:
+                        self.index.add_documents(prepared)
         return True
 
     @cached_property
