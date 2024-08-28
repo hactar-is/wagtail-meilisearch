@@ -1,17 +1,57 @@
 from django.db.models import Q
 from wagtail.search.backends.base import BaseSearchQueryCompiler
-from wagtail.search.query import Fuzzy, Phrase, PlainText
 from wagtail.search.utils import OR
+
+from .utils import get_field_mapping
 
 
 class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
+    """A query compiler for MeiliSearch.
+
+    This class extends BaseSearchQueryCompiler to provide MeiliSearch-specific
+    query compilation functionality.
+
+    Attributes:
+        queryset: The base queryset to search within.
+        query: The search query.
+        fields: The fields to search in.
+        operator: The operator to use for combining search terms.
+        order_by_relevance: Whether to order results by relevance.
+
+    Methods:
+        _process_lookup: Process a lookup for a field.
+        _connect_filters: Connects multiple filters with a given connector.
+    """
+
     def _process_lookup(self, field, lookup, value):
-        return Q(**{field.get_attname(self.queryset.model) + '__' + lookup: value})
+        """Process a lookup for a field.
+
+        Args:
+            field: The field to process the lookup for.
+            lookup: The type of lookup to perform.
+            value: The value to lookup.
+
+        Returns:
+            A Q object representing the lookup.
+        """
+        # Also borrowed from wagtail-whoosh
+        return Q(**{field.get_attname(self.queryset.model) + "__" + lookup: value})
 
     def _connect_filters(self, filters, connector, negated):
-        if connector == 'AND':
+        """Connects multiple filters with a given connector.
+
+        Args:
+            filters (list): A list of filters to connect.
+            connector (str): The type of connector to use ('AND' or 'OR').
+            negated (bool): Whether to negate the resulting filter.
+
+        Returns:
+            Q: A Q object representing the connected filters, or None if the connector is invalid.
+        """
+        # Also borrowed from wagtail-whoosh
+        if connector == "AND":
             q = Q(*filters)
-        elif connector == 'OR':
+        elif connector == "OR":
             q = OR([Q(fil) for fil in filters])
         else:
             return None
@@ -21,45 +61,18 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
 
         return q
 
-    @property
-    def search_terms(self):
-        return self.query.query_string
-
-    def get_meilisearch_query(self):
-        if isinstance(self.query, (PlainText, Phrase, Fuzzy)):
-            return self.query.query_string
-        return ''
-
-    def get_meilisearch_fields(self):
-        if self.fields:
-            return [field.field_name for field in self.fields]
-        return None
-
-    def get_meilisearch_filters(self):
-        # This method would need to be implemented to convert Wagtail's
-        # filter format to MeiliSearch's filter format
-        # It's a placeholder for now
-        return None
-
-    def get_meilisearch_sort(self):
-        if self.order_by_relevance:
-            return  # MeiliSearch will use its default relevance sorting
-        # This would need to be expanded to handle custom sorting
-        return
-
 
 class MeiliSearchAutocompleteQueryCompiler(MeiliSearchQueryCompiler):
+
     def _get_fields_names(self):
+        """Generates field names for autocomplete search.
+
+        This method yields the mapped field names for all autocomplete search fields
+        of the model associated with the current queryset.
+
+        Yields:
+            str: The mapped field name for each autocomplete search field.
+        """
         model = self.queryset.model
         for field in model.get_autocomplete_search_fields():
-            yield self._get_field_mapping(field)
-
-    def _get_field_mapping(self, field):
-        from .utils import _get_field_mapping
-        return _get_field_mapping(field)
-
-    def get_meilisearch_fields(self):
-        return list(self._get_fields_names())
-
-    def get_meilisearch_query(self):
-        return self.query.query_string
+            yield get_field_mapping(field)

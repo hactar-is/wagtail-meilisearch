@@ -2,10 +2,9 @@ import contextlib
 import sys
 
 import arrow
-from django.db import models
-from wagtail.search.index import AutocompleteField, FilterField, RelatedFields, SearchField
+from django.utils.functional import cached_property
 
-from .utils import _get_field_mapping, get_index_label, prepare_value
+from .utils import get_document_fields, get_index_label, weak_lru
 
 try:
     from cacheops import invalidate_model
@@ -15,13 +14,25 @@ except ImportError:
     USING_CACHEOPS = False
 
 
+class MeiliIndexError(Exception):
+    pass
+
+
 class MeiliSearchModelIndex:
     """Creates a working index for each model sent to it."""
 
     def __init__(self, backend, model):
+        """
+        Initialize the MeiliSearchModelIndex.
+
+        Args:
+            backend (MeiliSearchBackend): The backend instance.
+            model (Model): The Django model to be indexed.
+        """
         self.backend = backend
         self.client = backend.client
         self.model = model
+        self.model_fields = set(_.name for _ in model._meta.fields)
         self.name = model._meta.label
         self.index = self._set_index(model)
         self.update_strategy = backend.update_strategy
@@ -34,6 +45,12 @@ class MeiliSearchModelIndex:
         ]
 
     def _update_stop_words(self, label):
+        """
+        Update the stop words for the given index.
+
+        Args:
+            label (str): The label of the index to update.
+        """
         try:
             self.client.index(label).update_settings(
                 {
@@ -43,11 +60,37 @@ class MeiliSearchModelIndex:
         except Exception:
             sys.stdout.write(f"WARN: Failed to update stop words on {label}\n")
 
-    def _set_index(self, model):
-        label = get_index_label(model)
+    @weak_lru()
+    def _get_index_settings(self, label):
+        """
+        Get the settings for the index.
+
+        Args:
+            label (str): The label of the index.
+
+        Raises:
+            MeiliIndexError: If unable to get the index settings.
+        """
         try:
             self.client.get_index(label).get_settings()
-        except Exception:
+        except Exception as err:
+            msg = f"Failed to get settings for {label}: {err}"
+            raise MeiliIndexError(msg) from err
+
+    def _set_index(self, model):
+        """
+        Set up the index for the given model.
+
+        Args:
+            model (Model): The Django model to create an index for.
+
+        Returns:
+            Index: The MeiliSearch index object.
+        """
+        label = get_index_label(model)
+        try:
+            self._get_index_settings(label)
+        except MeiliIndexError:
             index = self.client.create_index(uid=label, options={"primaryKey": "id"})
             self._update_stop_words(label)
         else:
@@ -55,50 +98,71 @@ class MeiliSearchModelIndex:
         return index
 
     def _rebuild(self):
+        """Rebuild the index by deleting and recreating it."""
         self.index.delete()
         self._set_index(self.model)
 
     def add_model(self, model):
-        # Adding done on initialisation
+        """
+        Add a model to the index. This method is a no-op as adding is done on initialization.
+
+        Args:
+            model (Model): The Django model to add to the index.
+        """
         pass
 
     def get_index_for_model(self, model):
+        """
+        Get the index for the given model.
+
+        Args:
+            model (Model): The Django model to get the index for.
+
+        Returns:
+            MeiliSearchModelIndex: The index for the given model.
+        """
         self._set_index(model)
         return self
 
     def _get_document_fields(self, model, item):
-        for field in model.get_search_fields():
-            if isinstance(field, (SearchField, FilterField, AutocompleteField)):
-                with contextlib.suppress(Exception):
-                    yield _get_field_mapping(field), prepare_value(field.get_value(item))
-            if isinstance(field, RelatedFields):
-                value = field.get_value(item)
-                if isinstance(value, (models.Manager, models.QuerySet)):
-                    qs = value.all()
-                    for sub_field in field.fields:
-                        sub_values = qs.values_list(sub_field.field_name, flat=True)
-                        with contextlib.suppress(Exception):
-                            yield (
-                                f"{field.field_name}__{_get_field_mapping(sub_field)}",
-                                prepare_value(list(sub_values)),
-                            )
-                if isinstance(value, models.Model):
-                    for sub_field in field.fields:
-                        with contextlib.suppress(Exception):
-                            yield (
-                                f"{field.field_name}__{_get_field_mapping(sub_field)}",
-                                prepare_value(sub_field.get_value(value)),
-                            )
+        """
+        Get the fields for a document to be indexed.
+
+        Args:
+            model (Model): The Django model of the item.
+            item: The item to be indexed.
+
+        Returns:
+            dict: The fields of the document to be indexed.
+        """
+        return get_document_fields(model, item)
 
     def _create_document(self, model, item):
+        """
+        Create a document to be indexed.
+
+        Args:
+            model (Model): The Django model of the item.
+            item: The item to be indexed.
+
+        Returns:
+            dict: The document to be indexed.
+        """
         doc_fields = dict(self._get_document_fields(model, item))
         doc_fields.update(id=item.id)
         return doc_fields
 
     def refresh(self):
+        """Refresh the index. This method is a no-op in the current implementation."""
         pass
 
     def add_item(self, item):
+        """
+        Add a single item to the index.
+
+        Args:
+            item: The item to be added to the index.
+        """
         if self.update_strategy == "delta":
             checked = self._check_deltas([item])
             if len(checked):
@@ -111,6 +175,16 @@ class MeiliSearchModelIndex:
             self.index.add_documents([doc])
 
     def add_items(self, item_model, items):
+        """
+        Add multiple items to the index.
+
+        Args:
+            item_model (Model): The Django model of the items.
+            items (list): The items to be added to the index.
+
+        Returns:
+            bool: True if the operation was successful.
+        """
         if USING_CACHEOPS:
             with contextlib.suppress(Exception):
                 invalidate_model(item_model)
@@ -130,15 +204,30 @@ class MeiliSearchModelIndex:
 
         return True
 
-    def _has_date_fields(self, obj):
-        fields = [_.name for _ in obj._meta.fields]
-        return any(field in self.delta_fields for field in fields)
+    @cached_property
+    def _has_date_fields(self):
+        """
+        Check if the model has any of the delta fields.
+
+        Returns:
+            bool: True if the model has any of the delta fields, False otherwise.
+        """
+        return bool(self.model_fields.intersection(self.delta_fields))
 
     def _check_deltas(self, objects):
+        """
+        Filter objects based on the delta update strategy.
+
+        Args:
+            objects (list): The objects to be filtered.
+
+        Returns:
+            list: The filtered list of objects.
+        """
         filtered = []
         since = arrow.now().shift(**self.update_delta).datetime
         for obj in objects:
-            if self._has_date_fields(obj):
+            if self._has_date_fields:
                 for field in self.delta_fields:
                     if hasattr(obj, field):
                         val = getattr(obj, field)
@@ -151,12 +240,33 @@ class MeiliSearchModelIndex:
         return filtered
 
     def delete_item(self, obj):
+        """
+        Delete an item from the index.
+
+        Args:
+            obj: The object to be deleted from the index.
+        """
         self.index.delete_document(obj.id)
 
     def search(self, query):
+        """
+        Perform a search on the index.
+
+        Args:
+            query (str): The search query.
+
+        Returns:
+            dict: The search results.
+        """
         return self.index.search(query, self.backend.search_params)
 
     def __str__(self):
+        """
+        Get a string representation of the index.
+
+        Returns:
+            str: The name of the index.
+        """
         return self.name
 
 

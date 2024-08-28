@@ -38,4 +38,7 @@ class MeiliSearchRebuilder:
 
         model = self.index.model
         index = self.index.backend.get_index_for_model(model)
-        return None
+        return index
+
+    def finish(self):
+        pass

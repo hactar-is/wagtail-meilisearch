@@ -1,4 +1,7 @@
 import contextlib
+import functools
+import weakref
+from functools import lru_cache
 
 from django.apps import apps
 from django.db.models import Manager, Model, QuerySet
@@ -7,6 +10,27 @@ from wagtail.search.index import AutocompleteField, FilterField, RelatedFields, 
 from .settings import AUTOCOMPLETE_SUFFIX, FILTER_SUFFIX
 
 
+def weak_lru(maxsize=128, typed=False):
+    """
+    LRU Cache decorator that keeps a weak reference to "self" and
+    can be safely used on class methods
+    """
+
+    def wrapper(func):
+        @functools.lru_cache(maxsize, typed)
+        def _func(_self, *args, **kwargs):
+            return func(_self(), *args, **kwargs)
+
+        @functools.wraps(func)
+        def inner(self, *args, **kwargs):
+            return _func(weakref.ref(self), *args, **kwargs)
+
+        return inner
+
+    return wrapper
+
+
+@lru_cache(maxsize=None)
 def get_index_label(model):
     """
     Returns a unique label for the model's index.
@@ -14,7 +38,8 @@ def get_index_label(model):
     return model._meta.label.replace(".", "-")
 
 
-def _get_field_mapping(field):
+@lru_cache(maxsize=None)
+def get_field_mapping(field):
     """
     Returns the appropriate field mapping based on the field type.
     """
@@ -25,6 +50,7 @@ def _get_field_mapping(field):
     return field.field_name
 
 
+@lru_cache(maxsize=None)
 def get_descendant_models(model):
     """
     Returns all descendants of a model.
@@ -36,6 +62,7 @@ def get_descendant_models(model):
     return descendant_models
 
 
+@lru_cache(maxsize=None)
 def get_indexed_models():
     """
     Returns a list of all models that are registered for indexing.
@@ -71,15 +98,16 @@ def prepare_value(value):
     return str(value)
 
 
+@lru_cache(maxsize=None)
 def get_document_fields(model, item):
     """
     Walks through the model's search fields and returns a dictionary of fields to be indexed.
     """
-    document = {}
+    doc_fields = {}
     for field in model.get_search_fields():
         if isinstance(field, (SearchField, FilterField, AutocompleteField)):
             with contextlib.suppress(Exception):
-                document[_get_field_mapping(field)] = prepare_value(field.get_value(item))
+                doc_fields[get_field_mapping(field)] = prepare_value(field.get_value(item))
         elif isinstance(field, RelatedFields):
             value = field.get_value(item)
             if isinstance(value, (Manager, QuerySet)):
@@ -87,18 +115,19 @@ def get_document_fields(model, item):
                 for sub_field in field.fields:
                     sub_values = qs.values_list(sub_field.field_name, flat=True)
                     with contextlib.suppress(Exception):
-                        document[f"{field.field_name}__{_get_field_mapping(sub_field)}"] = (
+                        doc_fields[f"{field.field_name}__{get_field_mapping(sub_field)}"] = (
                             prepare_value(list(sub_values))
                         )
             elif isinstance(value, Model):
                 for sub_field in field.fields:
                     with contextlib.suppress(Exception):
-                        document[f"{field.field_name}__{_get_field_mapping(sub_field)}"] = (
+                        doc_fields[f"{field.field_name}__{get_field_mapping(sub_field)}"] = (
                             prepare_value(sub_field.get_value(value))
                         )
-    return document
+    return doc_fields
 
 
+@lru_cache(maxsize=None)
 def has_date_fields(obj):
     """
     Checks if the object has any of the specified date fields.
