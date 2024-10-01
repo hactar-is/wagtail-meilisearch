@@ -75,21 +75,38 @@ class MeiliSearchResults(BaseSearchResults):
             label = get_index_label(model)
             models_boosts[label] = self._get_field_boosts(model)
 
-        results = [
+        # Get active indexes
+        # For model types that don't have any documents, meilisearch won't
+        # create an index, so we have to check before running multi_search
+        # if an index exists, otherwise the entire multi_search call will fail.
+        active_index_dict = self.backend.client.get_indexes({"limit": 1000})
+        active_indexes = [index.uid for index in active_index_dict["results"]]
+
+        queries = [
             {
-                **item,
-                "boosts": models_boosts[items["indexUid"]],
+                "indexUid": index_uid,
+                "q": terms,
+                **self.backend.search_params,
             }
-            for items in self.backend.client.multi_search([
-                {
-                    "indexUid": index_uid,
-                    "q": terms,
-                    **self.backend.search_params,
-                }
-                for index_uid in models_boosts
-            ])["results"]
-            for item in items["hits"]
+            for index_uid in models_boosts
+            if index_uid in active_indexes
         ]
+
+        # Execute multi-search
+        multi_search_results = self.backend.client.multi_search(queries)
+
+        # Process and enhance results
+        results = []
+        for index_results in multi_search_results["results"]:
+            index_uid = index_results["indexUid"]
+            boost_value = models_boosts[index_uid]
+
+            for hit in index_results["hits"]:
+                hit_b = {
+                    **hit,
+                    "boosts": boost_value,
+                }
+                results.append(hit_b)
 
         # Calculate scores
         for item in results:
@@ -131,15 +148,19 @@ class MeiliSearchResults(BaseSearchResults):
         terms = self.query_string
         indexes_uids = [get_index_label(model) for model in models]
 
-        return sum([
-            results["totalHits"]
-            for results in self.backend.client.multi_search([
-                {
-                    "indexUid": index_uid,
-                    "q": terms,
-                    "attributesToRetrieve": [],
-                    "hitsPerPage": 0,
-                }
-                for index_uid in indexes_uids
-            ])["results"]
-        ])
+        return sum(
+            [
+                results["totalHits"]
+                for results in self.backend.client.multi_search(
+                    [
+                        {
+                            "indexUid": index_uid,
+                            "q": terms,
+                            "attributesToRetrieve": [],
+                            "hitsPerPage": 0,
+                        }
+                        for index_uid in indexes_uids
+                    ],
+                )["results"]
+            ],
+        )
