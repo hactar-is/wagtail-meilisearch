@@ -174,6 +174,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ## Change Log
 
+#### 0.17.1
+* Fixes a bug where multi_search can fail when a model index doesn't exist. For models have no documents meilisearch doesn't create the empty index, so we need to check active indexes before calling multi_search otherwise the entire call fails.
+
 #### 0.17.0
 * A few small performance and reliability improvements, and a lot of refactoring of the code into multiple files to make future development a bit simpler.
 
