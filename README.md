@@ -174,6 +174,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ## Change Log
 
+#### 0.17.2
+* Fixes a bug where the backend could report the wrong counts for results. This turned out to be down to the fact that _do_count can sometimes get called before _do_search, possibly due to Django's paginator. This finally explains why sometimes search queries ran twice.
+
 #### 0.17.1
 * Fixes a bug where multi_search can fail when a model index doesn't exist. For models have no documents meilisearch doesn't create the empty index, so we need to check active indexes before calling multi_search otherwise the entire call fails.
 
