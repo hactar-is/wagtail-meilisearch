@@ -45,6 +45,20 @@ class MeiliSearchModelIndex:
             "first_published_at",
             "last_published_at",
         ]
+        self._update_paginator(self.label)
+
+    def _update_paginator(self, label):
+        try:
+            self.client.index(label).update_settings(
+                {
+                    "pagination": {
+                        "maxTotalHits": self.backend.query_limit,
+                    },
+                },
+            )
+        except Exception as err:
+            sys.stdout.write(f"WARN: Failed to update paginator on {label}\n")
+            sys.stdout.write(f"{err}\n")
 
     def _update_stop_words(self, label):
         """
