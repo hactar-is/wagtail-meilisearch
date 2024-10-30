@@ -1,5 +1,4 @@
 from operator import itemgetter
-
 from django.db.models import Case, When
 from wagtail.search.backends.base import BaseSearchResults
 from wagtail.search.query import Fuzzy, Phrase, PlainText
@@ -14,7 +13,7 @@ class MeiliSearchResults(BaseSearchResults):
     This class extends BaseSearchResults and provides methods to process
     and retrieve search results from MeiliSearch.
     """
-
+    _last_count = None
     supports_facet = False
 
     @weak_lru()
@@ -79,7 +78,8 @@ class MeiliSearchResults(BaseSearchResults):
         # For model types that don't have any documents, meilisearch won't
         # create an index, so we have to check before running multi_search
         # if an index exists, otherwise the entire multi_search call will fail.
-        active_index_dict = self.backend.client.get_indexes({"limit": 1000})
+        limit = self.backend.query_limit
+        active_index_dict = self.backend.client.get_indexes({"limit": limit})
         active_indexes = [index.uid for index in active_index_dict["results"]]
 
         queries = [
@@ -132,35 +132,25 @@ class MeiliSearchResults(BaseSearchResults):
             )
             results = results.order_by(preserved_order)
 
-        return results.distinct()
+        res = results.distinct()
+
+        return res
 
     def _do_count(self):
         """
-        Count the total number of search results.
-
-        This method performs a search query against MeiliSearch to get the total
-        number of hits across all relevant indexes.
+        Hello fellow debugger. It looks like, possibly thanks to the Django paginator, this
+        method gets called before _do_search does. This means that the _results_cache and
+        _count_cache are both empty when this first runs. I wish I'd known this a year ago.
 
         Returns:
             int: The total number of search results.
         """
-        models = self.models
-        terms = self.query_string
-        indexes_uids = [get_index_label(model) for model in models]
+        if self._count_cache:
+            return self._count_cache
+        if self._results_cache:
+            return len(self._results_cache)
 
-        return sum(
-            [
-                results["totalHits"]
-                for results in self.backend.client.multi_search(
-                    [
-                        {
-                            "indexUid": index_uid,
-                            "q": terms,
-                            "attributesToRetrieve": [],
-                            "hitsPerPage": 0,
-                        }
-                        for index_uid in indexes_uids
-                    ],
-                )["results"]
-            ],
-        )
+        res = self._do_search()
+        self._count_cache = res.count()
+        self._results_cache = list(res)
+        return self._count_cache
