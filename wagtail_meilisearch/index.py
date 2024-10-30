@@ -261,6 +261,12 @@ class MeiliSearchModelIndex:
         """
         self.index.delete_document(obj.id)
 
+    def delete_all_documents(self):
+        """
+        Delete all documents from the index.
+        """
+        self.index.delete_all_documents()
+
     def search(self, query):
         """
         Perform a search on the index.
