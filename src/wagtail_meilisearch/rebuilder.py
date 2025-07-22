@@ -1,16 +1,20 @@
 import sys
+from typing import TYPE_CHECKING, Optional, Type, Union
 
-from .index import DummyModelIndex
+if TYPE_CHECKING:
+    from django.db.models import Model
+
+from .index import DummyModelIndex, MeiliSearchModelIndex
 from .utils import get_index_label
 
 
 class MeiliSearchRebuilder:
-    def __init__(self, model_index):
-        self.index = model_index
-        self.uid = get_index_label(self.index.model)
-        self.dummy_index = DummyModelIndex()
+    def __init__(self, model_index: MeiliSearchModelIndex) -> None:
+        self.index: MeiliSearchModelIndex = model_index
+        self.uid: str = get_index_label(self.index.model)
+        self.dummy_index: DummyModelIndex = DummyModelIndex()
 
-    def start(self):
+    def start(self) -> Union[MeiliSearchModelIndex, DummyModelIndex]:
         """
         Starts the rebuild process for the search index.
 
@@ -22,14 +26,14 @@ class MeiliSearchRebuilder:
         Returns:
             The appropriate index object for further operations.
         """
-        model = self.index.model
-        if self.index.model._meta.label in self.index.backend.skip_models:
-            sys.stdout.write(f'SKIPPING: {self.index.model._meta.label}\n')
+        model: Optional[Type[Model]] = self.index.model
+        if model and model._meta.label in self.index.backend.skip_models:
+            sys.stdout.write(f"SKIPPING: {model._meta.label}\n")
             return self.dummy_index
 
-        strategy = self.index.backend.update_strategy
+        strategy: str = self.index.backend.update_strategy
 
-        if strategy == 'soft' or strategy == 'delta':
+        if strategy == "soft" or strategy == "delta":
             # Soft update strategy
             index = self.index.backend.get_index_for_model(model)
         else:
@@ -38,8 +42,8 @@ class MeiliSearchRebuilder:
             old_index.delete_all_documents()
 
         model = self.index.model
-        index = self.index.backend.get_index_for_model(model)
+        index: MeiliSearchModelIndex = self.index.backend.get_index_for_model(model)
         return index
 
-    def finish(self):
+    def finish(self) -> None:
         pass

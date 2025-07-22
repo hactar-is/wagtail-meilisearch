@@ -63,7 +63,6 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
 
 
 class MeiliSearchAutocompleteQueryCompiler(MeiliSearchQueryCompiler):
-
     def _get_fields_names(self):
         """Generates field names for autocomplete search.
 

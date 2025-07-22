@@ -1,5 +1,7 @@
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union
+
 import meilisearch
-from django.db.models import QuerySet
+from django.db.models import Model, QuerySet
 from django.utils.functional import cached_property
 from wagtail.search.backends.base import BaseSearchBackend, EmptySearchResults
 
@@ -10,6 +12,8 @@ from .results import MeiliSearchResults
 from .settings import STOP_WORDS
 from .utils import class_is_indexed, get_indexed_models, weak_lru
 
+T = TypeVar("T", bound=Model)
+
 
 class MeiliSearchBackend(BaseSearchBackend):
     """
@@ -18,12 +22,14 @@ class MeiliSearchBackend(BaseSearchBackend):
     This class provides methods to interact with MeiliSearch for indexing and searching content.
     """
 
-    query_compiler_class = MeiliSearchQueryCompiler
-    autocomplete_query_compiler_class = MeiliSearchAutocompleteQueryCompiler
-    results_class = MeiliSearchResults
-    rebuilder_class = MeiliSearchRebuilder
+    query_compiler_class: MeiliSearchQueryCompiler = MeiliSearchQueryCompiler
+    autocomplete_query_compiler_class: MeiliSearchAutocompleteQueryCompiler = (
+        MeiliSearchAutocompleteQueryCompiler
+    )
+    results_class: MeiliSearchResults = MeiliSearchResults
+    rebuilder_class: MeiliSearchRebuilder = MeiliSearchRebuilder
 
-    def __init__(self, params):
+    def __init__(self, params: Dict[str, Any]) -> None:
         """
         Initialize the MeiliSearchBackend.
 
@@ -31,17 +37,17 @@ class MeiliSearchBackend(BaseSearchBackend):
             params (dict): Configuration parameters for the backend.
         """
         super().__init__(params)
-        self.params = params
-        self._client = None
-        self.stop_words = params.get("STOP_WORDS", STOP_WORDS)
-        self.skip_models = params.get("SKIP_MODELS", [])
-        self.update_strategy = params.get("UPDATE_STRATEGY", "soft")
-        self.query_limit = params.get("QUERY_LIMIT", 999999)
-        self.search_params = self._init_search_params()
-        self.update_delta = self._init_update_delta()
+        self.params: Dict[str, Any] = params
+        self._client: Optional[meilisearch.Client] = None
+        self.stop_words: List[str] = params.get("STOP_WORDS", STOP_WORDS)
+        self.skip_models: List[Type[Model]] = params.get("SKIP_MODELS", [])
+        self.update_strategy: str = params.get("UPDATE_STRATEGY", "soft")
+        self.query_limit: int = params.get("QUERY_LIMIT", 999999)
+        self.search_params: Dict[str, Any] = self._init_search_params()
+        self.update_delta: Optional[Dict[str, int]] = self._init_update_delta()
 
     @cached_property
-    def client(self):
+    def client(self) -> meilisearch.Client:
         """
         Lazily initialize and return the MeiliSearch client.
 
@@ -52,7 +58,7 @@ class MeiliSearchBackend(BaseSearchBackend):
             self._client = self._init_client()
         return self._client
 
-    def _init_client(self):
+    def _init_client(self) -> meilisearch.Client:
         """
         Initialize the MeiliSearch client.
 
@@ -71,7 +77,7 @@ class MeiliSearchBackend(BaseSearchBackend):
             msg = f"Failed to initialize MeiliSearch client: {err}"
             raise Exception(msg) from err
 
-    def _init_search_params(self):
+    def _init_search_params(self) -> Dict[str, Any]:
         """
         Initialize the search parameters.
 
@@ -82,9 +88,10 @@ class MeiliSearchBackend(BaseSearchBackend):
             "limit": self.query_limit,
             "attributesToRetrieve": ["id"],
             "showMatchesPosition": True,
+            "showRankingScore": True,
         }
 
-    def _init_update_delta(self):
+    def _init_update_delta(self) -> Optional[Dict[str, int]]:
         """
         Initialize the update delta for the delta update strategy.
 
@@ -96,7 +103,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         return None
 
     @weak_lru()
-    def get_index_for_model(self, model):
+    def get_index_for_model(self, model: Optional[Type[Model]]) -> MeiliSearchModelIndex:
         """
         Get the MeiliSearch index for a given model.
 
@@ -109,7 +116,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         model_index = MeiliSearchModelIndex(self, model)
         return model_index
 
-    def get_rebuilder(self):
+    def get_rebuilder(self) -> MeiliSearchRebuilder:
         """
         Get the index rebuilder.
 
@@ -118,13 +125,13 @@ class MeiliSearchBackend(BaseSearchBackend):
         """
         return self.rebuilder_class(self.get_index_for_model(None))
 
-    def reset_index(self):
+    def reset_index(self) -> None:
         """Reset all indexes for indexed models."""
         for model in get_indexed_models():
             index = self.get_index_for_model(model)
             index._rebuild()
 
-    def add_type(self, model):
+    def add_type(self, model: Type[Model]) -> None:
         """
         Add a new model type to the index.
 
@@ -133,16 +140,16 @@ class MeiliSearchBackend(BaseSearchBackend):
         """
         self.get_index_for_model(model).add_model(model)
 
-    def refresh_index(self):
+    def refresh_index(self) -> None:
         """Refresh all indexes for indexed models."""
-        refreshed_indexes = []
+        refreshed_indexes: List[MeiliSearchModelIndex] = []
         for model in get_indexed_models():
             index = self.get_index_for_model(model)
             if index not in refreshed_indexes:
                 index.refresh()
                 refreshed_indexes.append(index)
 
-    def add(self, obj):
+    def add(self, obj: Model) -> None:
         """
         Add a single object to the index.
 
@@ -151,7 +158,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         """
         self.get_index_for_model(type(obj)).add_item(obj)
 
-    def add_bulk(self, model, obj_list):
+    def add_bulk(self, model: Type[T], obj_list: List[T]) -> None:
         """
         Add multiple objects to the index.
 
@@ -162,7 +169,7 @@ class MeiliSearchBackend(BaseSearchBackend):
         index = self.get_index_for_model(model)
         index.add_items(model, obj_list)
 
-    def delete(self, obj):
+    def delete(self, obj: Model) -> None:
         """
         Delete an object from the index.
 
@@ -171,7 +178,16 @@ class MeiliSearchBackend(BaseSearchBackend):
         """
         self.get_index_for_model(type(obj)).delete_item(obj)
 
-    def _search(self, query_compiler_class, query, model_or_queryset, **kwargs):
+    def _search(
+        self,
+        query_compiler_class: Union[
+            Type[MeiliSearchQueryCompiler],
+            Type[MeiliSearchAutocompleteQueryCompiler],
+        ],
+        query: str,
+        model_or_queryset: Union[Type[Model], QuerySet],
+        **kwargs: Any,
+    ) -> Union[MeiliSearchResults, EmptySearchResults]:
         """
         Perform a search using the specified query compiler.
 
@@ -202,7 +218,14 @@ class MeiliSearchBackend(BaseSearchBackend):
 
         return self.results_class(self, search_query)
 
-    def search(self, query, model_or_queryset, fields=None, operator=None, order_by_relevance=True):
+    def search(
+        self,
+        query: str,
+        model_or_queryset: Union[Type[Model], QuerySet],
+        fields: Optional[List[str]] = None,
+        operator: Optional[str] = None,
+        order_by_relevance: bool = True,
+    ) -> Union[MeiliSearchResults, EmptySearchResults]:
         """
         Perform a search.
 
@@ -226,8 +249,13 @@ class MeiliSearchBackend(BaseSearchBackend):
         )
 
     def autocomplete(
-        self, query, model_or_queryset, fields=None, operator=None, order_by_relevance=True
-    ):
+        self,
+        query: str,
+        model_or_queryset: Union[Type[Model], QuerySet],
+        fields: Optional[List[str]] = None,
+        operator: Optional[str] = None,
+        order_by_relevance: bool = True,
+    ) -> Union[MeiliSearchResults, EmptySearchResults]:
         """
         Perform an autocomplete search.
 

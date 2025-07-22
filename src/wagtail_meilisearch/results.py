@@ -1,5 +1,7 @@
 from operator import itemgetter
+
 from django.db.models import Case, When
+from loguru import logger
 from wagtail.search.backends.base import BaseSearchResults
 from wagtail.search.query import Fuzzy, Phrase, PlainText
 
@@ -13,6 +15,7 @@ class MeiliSearchResults(BaseSearchResults):
     This class extends BaseSearchResults and provides methods to process
     and retrieve search results from MeiliSearch.
     """
+
     _last_count = None
     supports_facet = False
 
@@ -94,6 +97,8 @@ class MeiliSearchResults(BaseSearchResults):
 
         # Execute multi-search
         multi_search_results = self.backend.client.multi_search(queries)
+
+        logger.info(multi_search_results)
 
         # Process and enhance results
         results = []

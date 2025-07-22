@@ -16,3 +16,20 @@ dependencies = [
 [build-system]
 requires = ["uv_build>=0.7.19,<0.8.0"]
 build-backend = "uv_build"
+
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "B", "DJ", "C90", "S", "COM", "DTZ", "EM",
+    "PT", "RET", "SIM", "TCH", "ARG", "PTH", "PERF"
+]
+extend-ignore = ["E402", "RET504", "S101", "DJ012"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-wrap-aliases = true

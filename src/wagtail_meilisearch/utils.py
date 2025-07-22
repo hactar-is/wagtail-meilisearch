@@ -2,6 +2,7 @@ import contextlib
 import functools
 import weakref
 from functools import lru_cache
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, cast
 
 from django.apps import apps
 from django.db.models import Manager, Model, QuerySet
@@ -9,37 +10,43 @@ from wagtail.search.index import AutocompleteField, FilterField, RelatedFields, 
 
 from .settings import AUTOCOMPLETE_SUFFIX, FILTER_SUFFIX
 
+# Type variables for generic functions
+T = TypeVar("T")
+F = TypeVar("F", bound=Callable[..., Any])
 
-def weak_lru(maxsize=128, typed=False):
+
+def weak_lru(maxsize: int = 128, typed: bool = False) -> Callable[[F], F]:
     """
     LRU Cache decorator that keeps a weak reference to "self" and
     can be safely used on class methods
     """
 
-    def wrapper(func):
+    def wrapper(func: F) -> F:
         @functools.lru_cache(maxsize, typed)
-        def _func(_self, *args, **kwargs):
+        def _func(_self: Callable[[], Any], *args: Any, **kwargs: Any) -> Any:
             return func(_self(), *args, **kwargs)
 
         @functools.wraps(func)
-        def inner(self, *args, **kwargs):
+        def inner(self: Any, *args: Any, **kwargs: Any) -> Any:
             return _func(weakref.ref(self), *args, **kwargs)
 
-        return inner
+        return cast("F", inner)
 
     return wrapper
 
 
 @lru_cache(maxsize=None)
-def get_index_label(model):
+def get_index_label(model: Optional[Type[Model]]) -> str:
     """
     Returns a unique label for the model's index.
     """
+    if model is None:
+        return ""
     return model._meta.label.replace(".", "-")
 
 
 @lru_cache(maxsize=None)
-def get_field_mapping(field):
+def get_field_mapping(field: Union[SearchField, FilterField, AutocompleteField]) -> str:
     """
     Returns the appropriate field mapping based on the field type.
     """
@@ -51,7 +58,7 @@ def get_field_mapping(field):
 
 
 @lru_cache(maxsize=None)
-def get_descendant_models(model):
+def get_descendant_models(model: Type[Model]) -> List[Type[Model]]:
     """
     Returns all descendants of a model.
     e.g. for a search on Page, return [HomePage, ContentPage, Page] etc.
@@ -63,7 +70,7 @@ def get_descendant_models(model):
 
 
 @lru_cache(maxsize=None)
-def get_indexed_models():
+def get_indexed_models() -> List[Type[Model]]:
     """
     Returns a list of all models that are registered for indexing.
     """
@@ -72,7 +79,7 @@ def get_indexed_models():
     return wagtail_get_indexed_models()
 
 
-def class_is_indexed(model):
+def class_is_indexed(model: Type[Model]) -> bool:
     """
     Returns True if the model is registered for indexing.
     """
@@ -81,7 +88,7 @@ def class_is_indexed(model):
     return wagtail_class_is_indexed(model)
 
 
-def prepare_value(value):
+def prepare_value(value: Any) -> str:
     """
     Prepares a value for indexing.
     """
@@ -99,11 +106,11 @@ def prepare_value(value):
 
 
 @lru_cache(maxsize=None)
-def get_document_fields(model, item):
+def get_document_fields(model: Type[Model], item: Model) -> Dict[str, str]:
     """
     Walks through the model's search fields and returns a dictionary of fields to be indexed.
     """
-    doc_fields = {}
+    doc_fields: Dict[str, str] = {}
     for field in model.get_search_fields():
         if isinstance(field, (SearchField, FilterField, AutocompleteField)):
             with contextlib.suppress(Exception):
@@ -128,10 +135,10 @@ def get_document_fields(model, item):
 
 
 @lru_cache(maxsize=None)
-def has_date_fields(obj):
+def has_date_fields(obj: Model) -> bool:
     """
     Checks if the object has any of the specified date fields.
     """
-    date_fields = ["created_at", "updated_at", "first_published_at", "last_published_at"]
-    fields = [field.name for field in obj._meta.fields]
+    date_fields: List[str] = ["created_at", "updated_at", "first_published_at", "last_published_at"]
+    fields: List[str] = [field.name for field in obj._meta.fields]
     return any(field in date_fields for field in fields)
