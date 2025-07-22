@@ -1,42 +1,18 @@
-[tool.poetry]
+[project]
 name = "wagtail-meilisearch"
-version = "0.17.3"
-
+version = "1.0.0"
 description = "A MeiliSearch backend for Wagatil"
-authors = ["Hactar <systems@hactar.is>"]
-
-license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/hactar-is/wagtail-meilisearch"
-repository = "https://github.com/hactar-is/wagtail-meilisearch"
-keywords = ["wagtail", "django", "search", "meilisearch"]
-classifiers=[
-    'Environment :: Web Environment',
-    'Framework :: Django',
-    'Framework :: Wagtail',
-    'Framework :: Wagtail :: 2',
-    'Intended Audience :: Developers',
-    'Operating System :: OS Independent',
-    'Programming Language :: Python',
-    'Programming Language :: Python :: 3.8',
-    'Topic :: Internet :: WWW/HTTP',
-    'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
+authors = [
+    { name = "Hactar", email = "systems@hactar.is" }
 ]
-include = [
-    "LICENSE",
+requires-python = ">=3.10"
+dependencies = [
+    "arrow>=1.2.3",
+    "wagtail>=6.0",
+    "meilisearch>=0.36.0",
 ]
-
-[tool.poetry.dependencies]
-python = "^3.8"
-
-arrow = "^1.2.3"
-meilisearch = "^0.30.0"
-wagtail = ">5,<7"
-
-
-[tool.poetry.dev-dependencies]
-pytest = "^5.2"
 
 [build-system]
-requires = ["poetry-core>=1.0.8"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.7.19,<0.8.0"]
+build-backend = "uv_build"
