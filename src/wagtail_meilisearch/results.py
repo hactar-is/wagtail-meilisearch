@@ -75,7 +75,7 @@ class MeiliSearchResults(BaseSearchResults):
 
         return sorted_dict
 
-    def filter(self, filters: List[Tuple[str, str]]) -> QuerySet:
+    def filter(self, filters: List[Tuple[str, str]], operator: str = "AND") -> QuerySet:
         """Filter search results based on field-value pairs.
 
         Takes a list of tuples containing filter fields and values as strings,
@@ -100,7 +100,7 @@ class MeiliSearchResults(BaseSearchResults):
                 msg = f"Invalid filter item: {item}"
                 raise ValueError(msg)
 
-        res = self._do_search(filters=filters)
+        res = self._do_search(filters=filters, operator=operator)
         return res
 
     @weak_lru()
@@ -146,6 +146,7 @@ class MeiliSearchResults(BaseSearchResults):
         models: List[Type[Model]],
         terms: str,
         filters: Optional[List[Tuple[str, str]]] = None,
+        operator: str = "AND",
     ) -> List[Dict[str, Any]]:
         """Build a list of queries for MeiliSearch's multi-search API.
 
@@ -196,12 +197,17 @@ class MeiliSearchResults(BaseSearchResults):
                     filter_value = item[1]
                     if filter_field in filterable_fields:
                         filter_list.append(f"{filter_field} = '{filter_value}'")
-                q["filter"] = filter_list
+                q["filter"] = f" {operator} ".join(filter_list)
             queries.append(q)
+        print(queries)
 
         return queries
 
-    def _do_search(self, filters: Optional[List[Tuple[str, str]]] = None) -> QuerySet:
+    def _do_search(
+        self,
+        filters: Optional[List[Tuple[str, str]]] = None,
+        operator: str = "AND",
+    ) -> QuerySet:
         """Perform the search operation.
 
         Executes the search query against MeiliSearch, processes the results,
@@ -217,7 +223,7 @@ class MeiliSearchResults(BaseSearchResults):
         models = self.models
         terms = self.query_string
 
-        queries = self._build_queries(models, terms, filters)
+        queries = self._build_queries(models, terms, filters, operator)
         multi_search_results = self.backend.client.multi_search(queries)
 
         # Get search results sorted by relevance score in descending order (highest scores first)

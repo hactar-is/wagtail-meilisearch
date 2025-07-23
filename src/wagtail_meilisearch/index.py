@@ -88,7 +88,6 @@ class MeiliIndexRegistry:
             index = MeiliSearchModelIndex(
                 backend=self.backend,
                 model=model,
-                settings=self.settings,
             )
             cache.set(cache_key, index)
 

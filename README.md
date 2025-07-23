@@ -136,6 +136,19 @@ Any field that doesn't have a `boost` value will be given a default of 0 but wil
 
 In the backend, we automatically annotate the search results with their ranking, with a float between 0 and 1 as `search_rank` so in your search view you can sort by that value.
 
+## Faceting
+
+We now support faceting. In order to use it, you need to add `FilterField`s to your model on any field that you might want to facet on...
+
+```python
+search_fields = Page.search_fields + [
+    index.AutocompleteField("title", boost=10),
+    index.SearchField("body"),
+    index.SearchField("search_description", boost=5),
+    index.FilterField("category"),
+]
+```
+
 ## Query limits
 
 If you have a lot of DB documents, the final query to the database can be quite a heavy load. Meilisearch's relevance means that it's usually pretty safe to restrict the number of documents Meilisearch returns, and therefore the number of documents your app needs to get from the database. The limit is **per model**, so if your project has 10 page types and you set a limit of 1000, there's a possible 10000 results.
@@ -171,7 +184,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 #### 1.0.0
 * Big speed improvements thanks to using Meilisearch's native ranking system
-* Adds faceting (this is undocument as yet while I work out if it's any good)
+* Adds faceting
+* Adds filtering
+* Adds typing throughout
 
 #### 0.17.3
 * Fixes a bug where the meilisearch indexes could end up with a wrong maxTotalHits
