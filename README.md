@@ -149,6 +149,42 @@ search_fields = Page.search_fields + [
 ]
 ```
 
+With that in place, you can call `facet` on a search to get an OrderedDict of the facet values and their counts. By default, Wagtail adds several `FilterField`s to the Page model too, so for instance you can get the facet results of `content_type_id` with...
+
+```python
+Page.objects.search("query").facet("content_type")
+
+# OrderedDict([('58', 197), ('75', 2), ('52', 1), ('54', 1), ('61', 1)])
+```
+
+The ordered dict contains tuples of the form `(value, count)` where `value: str` is the value of the field (typically its pk) and `count` is the number of documents that have that value.
+
+### Filtering
+
+Armed with your facet counts, you can filter your search results by passing `filters` to the `filter` method. For example, to filter by `content_type_id`...
+
+```python
+Page.objects.search("query").filter(filters=[("content_type", "58")])
+
+# <PageQuerySet [<Page: Page 1>, <Page: Page 2>, ...]
+```
+
+The `filters` param should be a list of tuples, where each tuple is of the form `(field, value)`. Being a list, you can pass multiple tuples to filter by multiple fields. For example, to filter by `content_type` and `category`...
+
+```python
+Page.objects.search("query").filter(filters=[("content_type", "58"), ("category", "1")])
+
+# <PageQuerySet [<Page: Page 1>, <Page: Page 2>, ...]
+```
+
+And finally, you can choose the operator for the filter. By default, the operator is `AND`, but you can also use `OR`...
+
+```python
+Page.objects.search("query").filter(filters=[("content_type", "58"), ("category", "1")], operator="OR")
+
+# <PageQuerySet [<Page: Page 1>, <Page: Page 2>, ...]
+```
+
 ## Query limits
 
 If you have a lot of DB documents, the final query to the database can be quite a heavy load. Meilisearch's relevance means that it's usually pretty safe to restrict the number of documents Meilisearch returns, and therefore the number of documents your app needs to get from the database. The limit is **per model**, so if your project has 10 page types and you set a limit of 1000, there's a possible 10000 results.
