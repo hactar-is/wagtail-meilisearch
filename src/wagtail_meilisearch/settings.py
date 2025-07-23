@@ -6,13 +6,6 @@ from wagtail.search.index import AutocompleteField, FilterField, SearchField
 
 from .defaults import AUTOCOMPLETE_SUFFIX, DEFAULT_RANKING_RULES, FILTER_SUFFIX, STOP_WORDS
 
-try:
-    from django.utils.encoding import force_text
-except ImportError:
-    from django.utils.encoding import force_str
-
-    force_text = force_str
-
 
 def _get_field_mapping(field: Union[SearchField, FilterField, AutocompleteField]) -> str:
     """Returns the appropriate field mapping based on the field type.
@@ -159,7 +152,6 @@ class MeiliSettings:
             if isinstance(field, FilterField):
                 try:  # noqa: SIM105
                     filter_fields.append(_get_field_mapping(field))
-                    # yield _get_field_mapping(field), self.prepare_value(field.get_value(item))
                 except Exception:  # noqa: S110
                     pass
 

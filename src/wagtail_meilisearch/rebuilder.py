@@ -42,7 +42,6 @@ class MeiliSearchRebuilder:
             old_index = self.index.backend.get_index_for_model(model)
             old_index.delete_all_documents()
 
-        model = self.index.model
         index: MeiliSearchModelIndex = self.index.backend.get_index_for_model(model)
         self.settings.apply_settings(index=index)
         return index

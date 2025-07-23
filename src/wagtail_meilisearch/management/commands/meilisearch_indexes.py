@@ -73,16 +73,3 @@ class Command(BaseCommand):
 
                 print("\n")
                 print("*" * 80)
-
-    def _print_index_stats(self, model: str, v: Dict[str, Union[int, bool]]) -> None:
-        """Print statistics for a specific index.
-
-        Args:
-            model: The model name (index label).
-            v: Dictionary containing index statistics.
-        """
-        print(f"{model}")
-        print(f"  Documents: {v['numberOfDocuments']}")
-        if v["isIndexing"] is True:
-            print("  INDEXING")
-        print("")

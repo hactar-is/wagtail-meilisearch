@@ -41,22 +41,13 @@ class MeiliSearchBackend(BaseSearchBackend):
         """
         super().__init__(params)
         self.params = params
-        try:
-            self.client = meilisearch.Client(
-                "{}:{}".format(self.params["HOST"], self.params["PORT"]),
-                self.params["MASTER_KEY"],
-            )
-        except Exception:
-            raise
-
+        self.client = self._init_client()
         self.settings = MeiliSettings(params)
         self.index_registry = MeiliIndexRegistry(
             backend=self,
             settings=self.settings,
         )
         self.params: Dict[str, Any] = params
-        self._client: Optional[meilisearch.Client] = None
-        # self.stop_words: List[str] = params.get("STOP_WORDS", self.settings.STOP_WORDS)
         self.skip_models: List[Type[Model]] = params.get("SKIP_MODELS", [])
         self.update_strategy: str = params.get("UPDATE_STRATEGY", "soft")
         self.query_limit: int = params.get("QUERY_LIMIT", 999999)

@@ -134,16 +134,6 @@ def get_document_fields(model: Type[Model], item: Model) -> Dict[str, str]:
     return doc_fields
 
 
-@lru_cache(maxsize=None)
-def has_date_fields(obj: Model) -> bool:
-    """
-    Checks if the object has any of the specified date fields.
-    """
-    date_fields: List[str] = ["created_at", "updated_at", "first_published_at", "last_published_at"]
-    fields: List[str] = [field.name for field in obj._meta.fields]
-    return any(field in date_fields for field in fields)
-
-
 def ranked_ids_from_search_results(results: Dict[str, Any]) -> List[Tuple[int, float]]:
     """
     Extract all IDs and ranking scores from the hits in each index of the search results,
