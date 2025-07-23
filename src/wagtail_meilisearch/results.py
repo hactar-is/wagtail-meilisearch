@@ -1,7 +1,7 @@
 from collections import OrderedDict
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 
-from django.db.models import Case, When
+from django.db.models import Case, Model, QuerySet, When
 from wagtail.search.backends.base import BaseSearchResults
 from wagtail.search.query import Fuzzy, Phrase, PlainText
 
@@ -9,17 +9,21 @@ from .utils import get_descendant_models, get_index_label, ranked_ids_from_searc
 
 
 class MeiliSearchResults(BaseSearchResults):
-    """
-    A class to handle search results from MeiliSearch.
+    """A class to handle search results from MeiliSearch.
 
     This class extends BaseSearchResults and provides methods to process
-    and retrieve search results from MeiliSearch.
+    and retrieve search results from MeiliSearch, including faceting and filtering
+    capabilities.
+
+    Attributes:
+        _last_count: Cache for the last count result.
+        supports_facet: Whether faceting is supported by this backend.
     """
 
-    _last_count = None
-    supports_facet = True
+    _last_count: Optional[int] = None
+    supports_facet: bool = True
 
-    def facet(self, field_name):
+    def facet(self, field_name: str) -> OrderedDict:
         """
         Retrieve facet data for a given field from MeiliSearch. To use this, you'd do something
         like this:
@@ -27,7 +31,7 @@ class MeiliSearchResults(BaseSearchResults):
         ```python
         Page.objects.search('query').facet('content_type_id')
         ```
-        and this returns and ordered dictionary containing the facet data, ordered by the count
+        and this returns an ordered dictionary containing the facet data, ordered by the count
         of each facet value, like this...
 
         ```
@@ -71,36 +75,43 @@ class MeiliSearchResults(BaseSearchResults):
 
         return sorted_dict
 
-    def filter(self, filters: List[Tuple[str, str]]):
-        """
-        Take a list of tuples containing filter fields and values as strings,
-        and check they're valid before passing them on to _do_search.
+    def filter(self, filters: List[Tuple[str, str]]) -> QuerySet:
+        """Filter search results based on field-value pairs.
+
+        Takes a list of tuples containing filter fields and values as strings,
+        and checks they're valid before passing them on to _do_search.
+
+        Args:
+            filters: A list of (field_name, value) tuples to filter by.
+                Example: [('category', 'news'), ('author', 'john')]
+
+        Returns:
+            QuerySet: Filtered search results.
+
+        Raises:
+            ValueError: If no filters are provided or if filters are invalid.
         """
         if not len(filters):
             msg = "No filters provided"
             raise ValueError(msg)
 
-        filter_strings = []
         for item in filters:
             if not isinstance(item, tuple) or len(item) != 2:
                 msg = f"Invalid filter item: {item}"
                 raise ValueError(msg)
-            field_name, value = item
-            filter_strings.append(f"{field_name} = {value}")
 
         res = self._do_search(filters=filters)
         return res
 
     @weak_lru()
-    def _get_field_boosts(self, model):
-        """
-        Get the boost values for fields in a given model.
+    def _get_field_boosts(self, model: Type[Model]) -> Dict[str, float]:
+        """Get the boost values for fields in a given model.
 
         Args:
             model: The model to get field boosts for.
 
         Returns:
-            dict: A dictionary mapping field names to their boost values.
+            Dict[str, float]: A dictionary mapping field names to their boost values.
         """
         boosts = {}
         for field in model.search_fields:
@@ -109,19 +120,17 @@ class MeiliSearchResults(BaseSearchResults):
         return boosts
 
     @property
-    def models(self):
-        """
-        Get all descendant models of the queried model.
+    def models(self) -> List[Type[Model]]:
+        """Get all descendant models of the queried model.
 
         Returns:
-            list: A list of descendant models.
+            List[Type[Model]]: A list of descendant models.
         """
         return get_descendant_models(self.query_compiler.queryset.model)
 
     @property
-    def query_string(self):
-        """
-        Get the query string from the query compiler.
+    def query_string(self) -> str:
+        """Get the query string from the query compiler.
 
         Returns:
             str: The query string if it's a PlainText, Phrase, or Fuzzy query,
@@ -132,18 +141,25 @@ class MeiliSearchResults(BaseSearchResults):
             return query.query_string
         return ""
 
-    def _build_queries(self, models, terms, filters: Optional[List[Tuple[str, str]]]):
-        """
-        Build a list of queries for the given models, terms, and filters, suitable for passing to
-        Meilisearch's multi-search API.
+    def _build_queries(
+        self,
+        models: List[Type[Model]],
+        terms: str,
+        filters: Optional[List[Tuple[str, str]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Build a list of queries for MeiliSearch's multi-search API.
+
+        Creates query dictionaries for each model and applies any filters,
+        suitable for passing to MeiliSearch's multi-search API.
 
         Args:
-            models (List[Model]): The models to search.
-            terms (str): The search terms.
-            filters (Optional[List[Tuple[str, str]]]): The filters to apply.
+            models: The models to search.
+            terms: The search terms.
+            filters: The filters to apply, as (field, value) tuples.
+                Defaults to None.
 
         Returns:
-            List[dict]: A list of queries.
+            List[Dict[str, Any]]: A list of query dictionaries ready for the API.
         """
         if filters is None:
             filters = []
@@ -185,12 +201,15 @@ class MeiliSearchResults(BaseSearchResults):
 
         return queries
 
-    def _do_search(self, filters: List[Tuple[str, str]]):
-        """
-        Perform the search operation.
+    def _do_search(self, filters: Optional[List[Tuple[str, str]]] = None) -> QuerySet:
+        """Perform the search operation.
 
-        This method executes the search query against MeiliSearch, processes the results,
+        Executes the search query against MeiliSearch, processes the results,
         calculates scores, and returns the results in the order specified by the query compiler.
+
+        Args:
+            filters: Optional list of (field, value) tuples to filter the search results.
+                Defaults to None.
 
         Returns:
             QuerySet: A queryset of search results, ordered by relevance if specified.
@@ -227,18 +246,23 @@ class MeiliSearchResults(BaseSearchResults):
 
             # Order by the actual score in descending order (highest first)
             results = results.order_by("-search_rank")
-        for result in results:
-            print(f"{result.search_rank}: {result.id} - {result.title}")
+        # Enable this for debugging
+        # for result in results:
+        #     print(f"{result.search_rank}: {result.id} - {result.title}")
 
         res = results.distinct()
 
         return res
 
-    def _do_count(self):
-        """
-        Hello fellow debugger. It looks like, possibly thanks to the Django paginator, this
-        method gets called before _do_search does. This means that the _results_cache and
-        _count_cache are both empty when this first runs. I wish I'd known this a year ago.
+    def _do_count(self) -> int:
+        """Count the total number of search results.
+
+        This method gets called before _do_search when using Django's paginator.
+        It ensures that _results_cache and _count_cache are properly populated.
+
+        Note:
+            This method gets called before _do_search when using Django pagination,
+            which means _results_cache and _count_cache may be empty on first run.
 
         Returns:
             int: The total number of search results.

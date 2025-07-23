@@ -1,4 +1,6 @@
-from django.db.models import Q
+from typing import Any, Generator, List, Optional, Type
+
+from django.db.models import Model, Q
 from wagtail.search.backends.base import BaseSearchQueryCompiler
 from wagtail.search.utils import OR
 
@@ -12,18 +14,18 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
     query compilation functionality.
 
     Attributes:
-        queryset: The base queryset to search within.
-        query: The search query.
-        fields: The fields to search in.
-        operator: The operator to use for combining search terms.
-        order_by_relevance: Whether to order results by relevance.
+        queryset (QuerySet): The base queryset to search within.
+        query (SearchQuery): The search query.
+        fields (List[str]): The fields to search in.
+        operator (str): The operator to use for combining search terms ('and' or 'or').
+        order_by_relevance (bool): Whether to order results by relevance.
 
     Methods:
         _process_lookup: Process a lookup for a field.
         _connect_filters: Connects multiple filters with a given connector.
     """
 
-    def _process_lookup(self, field, lookup, value):
+    def _process_lookup(self, field: Any, lookup: str, value: Any) -> Q:
         """Process a lookup for a field.
 
         Args:
@@ -32,21 +34,22 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
             value: The value to lookup.
 
         Returns:
-            A Q object representing the lookup.
+            Q: A Q object representing the lookup.
         """
         # Also borrowed from wagtail-whoosh
         return Q(**{field.get_attname(self.queryset.model) + "__" + lookup: value})
 
-    def _connect_filters(self, filters, connector, negated):
+    def _connect_filters(self, filters: List[Any], connector: str, negated: bool) -> Optional[Q]:
         """Connects multiple filters with a given connector.
 
         Args:
-            filters (list): A list of filters to connect.
-            connector (str): The type of connector to use ('AND' or 'OR').
-            negated (bool): Whether to negate the resulting filter.
+            filters: A list of filters to connect.
+            connector: The type of connector to use ('AND' or 'OR').
+            negated: Whether to negate the resulting filter.
 
         Returns:
-            Q: A Q object representing the connected filters, or None if the connector is invalid.
+            Optional[Q]: A Q object representing the connected filters,
+                or None if the connector is invalid.
         """
         # Also borrowed from wagtail-whoosh
         if connector == "AND":
@@ -63,7 +66,13 @@ class MeiliSearchQueryCompiler(BaseSearchQueryCompiler):
 
 
 class MeiliSearchAutocompleteQueryCompiler(MeiliSearchQueryCompiler):
-    def _get_fields_names(self):
+    """A query compiler for MeiliSearch autocomplete searches.
+
+    This class extends MeiliSearchQueryCompiler to provide specialized handling
+    for autocomplete searches in MeiliSearch.
+    """
+
+    def _get_fields_names(self) -> Generator[str, None, None]:
         """Generates field names for autocomplete search.
 
         This method yields the mapped field names for all autocomplete search fields
@@ -72,6 +81,6 @@ class MeiliSearchAutocompleteQueryCompiler(MeiliSearchQueryCompiler):
         Yields:
             str: The mapped field name for each autocomplete search field.
         """
-        model = self.queryset.model
+        model: Type[Model] = self.queryset.model
         for field in model.get_autocomplete_search_fields():
             yield get_field_mapping(field)

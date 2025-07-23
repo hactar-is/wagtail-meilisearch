@@ -1,7 +1,7 @@
 import contextlib
 
 # Import for type checking only
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type, cast
 
 import arrow
 from django.core.cache import cache
@@ -11,6 +11,10 @@ from meilisearch.index import Index
 from requests.exceptions import HTTPError
 
 from .utils import get_document_fields
+
+if TYPE_CHECKING:
+    from .backend import MeiliSearchBackend
+    from .settings import MeiliSettings
 
 try:
     from cacheops import invalidate_model
@@ -25,28 +29,51 @@ class MeiliIndexError(Exception):
 
 
 class MeiliIndexRegistry:
-    """A registry of all the indexes we're using."""
+    """A registry of all the indexes we're using.
 
-    indexes: dict = {}
+    This class maintains a registry of all MeiliSearch indexes and provides methods
+    to retrieve and manage them.
 
-    def __init__(self, backend, settings):
+    Attributes:
+        indexes (Dict[str, MeiliSearchModelIndex]): Dictionary mapping labels to index objects.
+    """
+
+    indexes: Dict[str, "MeiliSearchModelIndex"] = {}
+
+    def __init__(self, backend: Any, settings: Any) -> None:
+        """Initialize the MeiliIndexRegistry.
+
+        Args:
+            backend: The search backend instance.
+            settings: The settings for the search backend.
+        """
         self.backend = backend
         self.client = backend.client
         self.settings = settings
 
-    def _get_label(self, model):
+    def _get_label(self, model: Type[Model]) -> str:
+        """Get a unique label for the model's index.
+
+        Args:
+            model: The model to get the label for.
+
+        Returns:
+            str: A unique label for the model's index.
+        """
         label = model._meta.label.replace(".", "-")
         return label
 
-    def get_index_for_model(self, model):
-        """This gets called by the get_index_for_model in the backend which in turn is called by
+    def get_index_for_model(self, model: Type[Model]) -> "MeiliSearchModelIndex":
+        """Get the index for a specific model.
+
+        This gets called by the get_index_for_model in the backend which in turn is called by
         update_index management command so needs to exist as a method on the backend.
 
         Args:
-            model (Model): The model we're looking for the index for
+            model: The model we're looking for the index for.
 
         Returns:
-            MeiliSearchModelIndex: the index for the model
+            MeiliSearchModelIndex: The index for the model.
         """
         label = self._get_label(model)
 
@@ -68,10 +95,25 @@ class MeiliIndexRegistry:
         self.register(label, index)
         return index
 
-    def register(self, label, index):
+    def register(self, label: str, index: "MeiliSearchModelIndex") -> None:
+        """Register an index with a label.
+
+        Args:
+            label: The label to register the index under.
+            index: The index to register.
+        """
         self.indexes[label] = index
 
-    def _refresh(self, uid, model):
+    def _refresh(self, uid: str, model: Type[Model]) -> "MeiliSearchModelIndex":
+        """Refresh an index by deleting and recreating it.
+
+        Args:
+            uid: The unique ID of the index to refresh.
+            model: The model associated with the index.
+
+        Returns:
+            MeiliSearchModelIndex: The newly created index.
+        """
         index = self.client.get_index(uid)
         index.delete()
         new_index = self.get_index_for_model(model)
@@ -82,42 +124,53 @@ class MeiliSearchModelIndex:
     """Creates a working index for each model sent to it."""
 
     def __init__(self, backend: Any, model: Optional[Type[Model]]) -> None:
-        """
-        Initialize the MeiliSearchModelIndex.
+        """Initialize the MeiliSearchModelIndex.
+
+        Creates a working index for the specified model and sets up all the necessary
+        properties for interacting with MeiliSearch.
 
         Args:
-            backend (MeiliSearchBackend): The backend instance.
-            model (Model): The Django model to be indexed.
+            backend: The backend instance.
+            model: The Django model to be indexed.
         """
-        self.backend = backend
-        self.settings = settings = backend.settings
-        self.model = model
+        self.backend: "MeiliSearchBackend" = backend
+        self.settings: "MeiliSettings" = backend.settings
+        settings: "MeiliSettings" = self.settings
+        self.model: Optional[Type[Model]] = model
 
-        self.client = backend.client
-        self.query_limit = settings.query_limit
-        self.name = model._meta.label
+        self.client: Any = backend.client
+        self.query_limit: int = settings.query_limit
+        self.name: str = "" if model is None else model._meta.label
+        self.model_fields: Set[str] = set()
+        if model is not None:
+            self.model_fields = set(_.name for _ in model._meta.fields)
 
-        self.index = self._set_index(model)
-        self.search_params = {
+        self.index: Index = self._set_index(model)
+        self.search_params: Dict[str, Any] = {
             "limit": self.query_limit,
             "attributesToRetrieve": ["id", "first_published_at"],
             "showMatchesPosition": True,
         }
-        self.update_strategy = settings.update_strategy
-        self.update_delta = settings.update_delta
-        self.delta_fields = [
+        self.update_strategy: str = settings.update_strategy
+        self.update_delta: Optional[Dict[str, int]] = settings.update_delta
+        self.delta_fields: List[str] = [
             "created_at",
             "updated_at",
             "first_published_at",
             "last_published_at",
         ]
+        self.label: str = "" if model is None else self._get_label(model)
 
     def _get_index_settings(self, label: str) -> Dict[str, Any]:
-        """
-        Get the settings for the index.
+        """Get the settings for the index.
+
+        Retrieves the current settings for the specified MeiliSearch index.
 
         Args:
-            label (str): The label of the index.
+            label: The label of the index.
+
+        Returns:
+            Dict[str, Any]: The settings for the index.
 
         Raises:
             MeiliIndexError: If unable to get the index settings.
@@ -129,11 +182,12 @@ class MeiliSearchModelIndex:
             raise MeiliIndexError(msg) from err
 
     def _set_index(self, model: Optional[Type[Model]]) -> Index:
-        """
-        Set up the index for the given model.
+        """Set up the index for the given model.
+
+        Creates or retrieves the MeiliSearch index for the specified model.
 
         Args:
-            model (Model): The Django model to create an index for.
+            model: The Django model to create an index for.
 
         Returns:
             Index: The MeiliSearch index object.
@@ -158,6 +212,14 @@ class MeiliSearchModelIndex:
         return index
 
     def _get_label(self, model: Type[Model]) -> str:
+        """Get a unique label for the model's index.
+
+        Args:
+            model: The model to get the label for.
+
+        Returns:
+            str: A unique label for the model's index.
+        """
         if hasattr(self, "label") and self.label:
             return self.label
 
@@ -165,7 +227,11 @@ class MeiliSearchModelIndex:
         return label
 
     def _rebuild(self) -> None:
-        """Rebuild the index by deleting and recreating it."""
+        """Rebuild the index by deleting and recreating it.
+
+        This method completely recreates the index, which will remove all
+        documents and reset all settings.
+        """
         self.index.delete()
         self._set_index(self.model)
 
@@ -192,40 +258,49 @@ class MeiliSearchModelIndex:
         return self
 
     def _get_document_fields(self, model: Type[Model], item: Model) -> Dict[str, Any]:
-        """
-        Get the fields for a document to be indexed.
+        """Get the fields for a document to be indexed.
+
+        Extracts all indexable fields from the item using the model's search field definitions.
 
         Args:
-            model (Model): The Django model of the item.
+            model: The Django model of the item.
             item: The item to be indexed.
 
         Returns:
-            dict: The fields of the document to be indexed.
+            Dict[str, Any]: The fields of the document to be indexed.
         """
         return get_document_fields(model, item)
 
     def _create_document(self, model: Type[Model], item: Model) -> Dict[str, Any]:
-        """
-        Create a document to be indexed.
+        """Create a document to be indexed.
+
+        Builds a complete document dictionary with all fields and the ID for indexing.
 
         Args:
-            model (Model): The Django model of the item.
+            model: The Django model of the item.
             item: The item to be indexed.
 
         Returns:
-            dict: The document to be indexed.
+            Dict[str, Any]: The document to be indexed.
         """
         doc_fields = dict(self._get_document_fields(model, item))
         doc_fields.update(id=item.id)
         return doc_fields
 
     def refresh(self) -> None:
-        """Refresh the index. This method is a no-op in the current implementation."""
+        """Refresh the index.
+
+        This method is a no-op in the current implementation.
+        It exists to maintain compatibility with the Wagtail search API.
+        """
         pass
 
     def add_item(self, item: Model) -> None:
-        """
-        Add a single item to the index.
+        """Add a single item to the index.
+
+        Indexes a single model instance according to the current update strategy.
+        If using the delta update strategy, only adds the item if it was modified
+        within the delta time period.
 
         Args:
             item: The item to be added to the index.
@@ -245,12 +320,16 @@ class MeiliSearchModelIndex:
             self.index.add_documents([doc])
 
     def add_items(self, item_model: Type[Model], items: List[Model]) -> bool:
-        """
-        Add multiple items to the index.
+        """Add multiple items to the index.
+
+        Indexes multiple model instances according to the current update strategy.
+        Processes items in chunks of 100 to avoid overwhelming the MeiliSearch instance.
+        If using the delta update strategy, only adds items that were modified
+        within the delta time period.
 
         Args:
-            item_model (Model): The Django model of the items.
-            items (list): The items to be added to the index.
+            item_model: The Django model of the items.
+            items: The items to be added to the index.
 
         Returns:
             bool: True if the operation was successful.
@@ -277,8 +356,10 @@ class MeiliSearchModelIndex:
 
     @cached_property
     def _has_date_fields(self) -> bool:
-        """
-        Check if the model has any of the delta fields.
+        """Check if the model has any of the delta fields.
+
+        Determines if the model has any fields that can be used for delta updates
+        (created_at, updated_at, first_published_at, last_published_at).
 
         Returns:
             bool: True if the model has any of the delta fields, False otherwise.
@@ -286,14 +367,17 @@ class MeiliSearchModelIndex:
         return bool(self.model_fields.intersection(self.delta_fields))
 
     def _check_deltas(self, objects: List[Model]) -> List[Model]:
-        """
-        Filter objects based on the delta update strategy.
+        """Filter objects based on the delta update strategy.
+
+        When using the delta update strategy, this method filters the objects list
+        to only include items that have been created or modified within the
+        specified time period.
 
         Args:
-            objects (list): The objects to be filtered.
+            objects: The objects to be filtered.
 
         Returns:
-            list: The filtered list of objects.
+            List[Model]: The filtered list of objects.
         """
         filtered: List[Model] = []
         if not self.update_delta:
@@ -314,8 +398,9 @@ class MeiliSearchModelIndex:
         return filtered
 
     def delete_item(self, obj: Model) -> None:
-        """
-        Delete an item from the index.
+        """Delete an item from the index.
+
+        Removes a single document from the index based on its ID.
 
         Args:
             obj: The object to be deleted from the index.
@@ -323,20 +408,26 @@ class MeiliSearchModelIndex:
         self.index.delete_document(obj.id)
 
     def delete_all_documents(self) -> None:
-        """
-        Delete all documents from the index.
+        """Delete all documents from the index.
+
+        Removes all documents from the index while preserving the index settings.
+        This is faster than deleting and recreating the index.
         """
         self.index.delete_all_documents()
 
-    def search(self, query: str, extras: Optional[dict] = None) -> Dict[str, Any]:
-        """
-        Perform a search on the index.
+    def search(self, query: str, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Perform a search on the index.
+
+        Executes a search query against the MeiliSearch index with the specified
+        search parameters.
 
         Args:
-            query (str): The search query.
+            query: The search query string.
+            extras: Optional additional search parameters to include in the request.
+                These will be merged with the default search parameters.
 
         Returns:
-            dict: The search results.
+            Dict[str, Any]: The search results from MeiliSearch.
         """
         if extras is None:
             extras = {}
@@ -347,8 +438,9 @@ class MeiliSearchModelIndex:
         return self.index.search(query, params)
 
     def __str__(self) -> str:
-        """
-        Get a string representation of the index.
+        """Get a string representation of the index.
+
+        Returns the name of the index for easy identification.
 
         Returns:
             str: The name of the index.
@@ -357,13 +449,29 @@ class MeiliSearchModelIndex:
 
 
 class DummyModelIndex:
-    """This class enables the SKIP_MODELS feature by providing a
-    dummy model index that we can add things to without it actually
-    doing anything.
+    """A dummy model index that performs no actual indexing operations.
+
+    This class enables the SKIP_MODELS feature by providing a dummy
+    implementation of the MeiliSearchModelIndex interface that can receive
+    add operations without actually indexing anything.
+
+    This is useful for models that should be excluded from search but still
+    need to go through the indexing workflow.
     """
 
     def add_model(self, model: Type[Model]) -> None:
+        """Add a model to the index (no-op).
+
+        Args:
+            model: The model to be added (ignored).
+        """
         pass
 
     def add_items(self, model: Type[Model], chunk: List[Model]) -> None:
+        """Add items to the index (no-op).
+
+        Args:
+            model: The model of the items (ignored).
+            chunk: The items to be added (ignored).
+        """
         pass

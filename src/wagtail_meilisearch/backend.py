@@ -13,7 +13,7 @@ from .query import MeiliSearchAutocompleteQueryCompiler, MeiliSearchQueryCompile
 from .rebuilder import MeiliSearchRebuilder
 from .results import MeiliSearchResults
 from .settings import MeiliSettings
-from .utils import class_is_indexed, get_indexed_models, weak_lru
+from .utils import class_is_indexed, get_indexed_models
 
 T = TypeVar("T", bound=Model)
 
@@ -130,20 +130,6 @@ class MeiliSearchBackend(BaseSearchBackend):
         if self.update_strategy == "delta":
             return self.params.get("UPDATE_DELTA", {"weeks": -1})
         return None
-
-    @weak_lru()
-    def get_index_for_model(self, model: Optional[Type[Model]]) -> MeiliSearchModelIndex:
-        """
-        Get the MeiliSearch index for a given model.
-
-        Args:
-            model: The model to get the index for.
-
-        Returns:
-            MeiliSearchModelIndex: The index for the given model.
-        """
-        model_index = MeiliSearchModelIndex(self, model)
-        return model_index
 
     def get_rebuilder(self) -> MeiliSearchRebuilder:
         """
