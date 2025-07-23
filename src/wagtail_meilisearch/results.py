@@ -1,11 +1,11 @@
-from operator import itemgetter
+from collections import OrderedDict
+from typing import List, Optional, Tuple
 
 from django.db.models import Case, When
-from loguru import logger
 from wagtail.search.backends.base import BaseSearchResults
 from wagtail.search.query import Fuzzy, Phrase, PlainText
 
-from .utils import get_descendant_models, get_index_label, weak_lru
+from .utils import get_descendant_models, get_index_label, ranked_ids_from_search_results, weak_lru
 
 
 class MeiliSearchResults(BaseSearchResults):
@@ -17,7 +17,79 @@ class MeiliSearchResults(BaseSearchResults):
     """
 
     _last_count = None
-    supports_facet = False
+    supports_facet = True
+
+    def facet(self, field_name):
+        """
+        Retrieve facet data for a given field from MeiliSearch. To use this, you'd do something
+        like this:
+
+        ```python
+        Page.objects.search('query').facet('content_type_id')
+        ```
+        and this returns and ordered dictionary containing the facet data, ordered by the count
+        of each facet value, like this...
+
+        ```
+        OrderedDict([('58', 197), ('75', 2), ('52', 1), ('54', 1), ('61', 1)])
+        ```
+
+        In this example, pages with the content type ID of 58 return 197 results, and so on.
+
+        Args:
+            field_name (str): The name of the field for which to retrieve facet data.
+
+        Returns:
+            OrderedDict: An ordered dictionary containing the facet data.
+        """
+        qc = self.query_compiler
+        model = qc.queryset.model
+        models = get_descendant_models(model)
+        terms = qc.query.query_string
+        filter_field = f"{field_name}_filter"
+
+        results = OrderedDict()
+        for m in models:
+            index = self.backend.get_index_for_model(m)
+            filterable_fields = index.client.index(index.label).get_filterable_attributes()
+            if filter_field in filterable_fields:
+                result = index.search(
+                    terms,
+                    {
+                        "facets": [filter_field],
+                    },
+                )
+                try:
+                    res = result["facetDistribution"][filter_field]
+                except KeyError:
+                    pass
+                else:
+                    results.update(res)
+
+        # Sort the results
+        sorted_dict = OrderedDict(sorted(results.items(), key=lambda x: x[1], reverse=True))
+
+        return sorted_dict
+
+    def filter(self, filters: List[Tuple[str, str]]):
+        """
+        Take a list of tuples containing filter fields and values as strings,
+        and check they're valid before passing them on to _do_search.
+        """
+        if not len(filters):
+            msg = "No filters provided"
+            raise ValueError(msg)
+
+        filter_strings = []
+        for item in filters:
+            if not isinstance(item, tuple) or len(item) != 2:
+                msg = f"Invalid filter item: {item}"
+                raise ValueError(msg)
+            field_name, value = item
+            filter_strings.append(f"{field_name} = {value}")
+
+        res = self._do_search(filters=filters)
+        return res
 
     @weak_lru()
     def _get_field_boosts(self, model):
@@ -52,14 +124,68 @@ class MeiliSearchResults(BaseSearchResults):
         Get the query string from the query compiler.
 
         Returns:
-            str: The query string if it's a PlainText, Phrase, or Fuzzy query, otherwise an empty string.
+            str: The query string if it's a PlainText, Phrase, or Fuzzy query,
+                otherwise an empty string.
         """
         query = self.query_compiler.query
         if isinstance(query, (PlainText, Phrase, Fuzzy)):
             return query.query_string
         return ""
 
-    def _do_search(self):
+    def _build_queries(self, models, terms, filters: Optional[List[Tuple[str, str]]]):
+        """
+        Build a list of queries for the given models, terms, and filters, suitable for passing to
+        Meilisearch's multi-search API.
+
+        Args:
+            models (List[Model]): The models to search.
+            terms (str): The search terms.
+            filters (Optional[List[Tuple[str, str]]]): The filters to apply.
+
+        Returns:
+            List[dict]: A list of queries.
+        """
+        if filters is None:
+            filters = []
+
+        # This block was actually part of the old boosts used before Meilisearch had
+        # native ranking. However, if I remove this, somehow we end up searching
+        # across all indexes instead of only those covered by the queryset we
+        # want to search in. Eventually I'll work out why and remove this.
+        models_boosts = {}
+        for model in models:
+            label = get_index_label(model)
+            models_boosts[label] = self._get_field_boosts(model)
+
+        # Get active indexes
+        # For model types that don't have any documents, meilisearch won't
+        # create an index, so we have to check before running multi_search
+        # if an index exists, otherwise the entire multi_search call will fail.
+        limit = self.backend.settings.query_limit
+        active_index_dict = self.backend.client.get_indexes({"limit": limit})
+        active_indexes = [index for index in active_index_dict["results"]]
+
+        queries = []
+        for index in active_indexes:
+            filterable_fields = index.get_filterable_attributes()
+            q = {  # noqa: PERF401
+                "indexUid": index.uid,
+                "q": terms,
+                **self.backend.search_params,
+            }
+            if len(filters):
+                filter_list = []
+                for item in filters:
+                    filter_field = f"{item[0]}_filter"
+                    filter_value = item[1]
+                    if filter_field in filterable_fields:
+                        filter_list.append(f"{filter_field} = '{filter_value}'")
+                q["filter"] = filter_list
+            queries.append(q)
+
+        return queries
+
+    def _do_search(self, filters: List[Tuple[str, str]]):
         """
         Perform the search operation.
 
@@ -72,70 +198,37 @@ class MeiliSearchResults(BaseSearchResults):
         models = self.models
         terms = self.query_string
 
-        models_boosts = {}
-        for model in models:
-            label = get_index_label(model)
-            models_boosts[label] = self._get_field_boosts(model)
-
-        # Get active indexes
-        # For model types that don't have any documents, meilisearch won't
-        # create an index, so we have to check before running multi_search
-        # if an index exists, otherwise the entire multi_search call will fail.
-        limit = self.backend.query_limit
-        active_index_dict = self.backend.client.get_indexes({"limit": limit})
-        active_indexes = [index.uid for index in active_index_dict["results"]]
-
-        queries = [
-            {
-                "indexUid": index_uid,
-                "q": terms,
-                **self.backend.search_params,
-            }
-            for index_uid in models_boosts
-            if index_uid in active_indexes
-        ]
-
-        # Execute multi-search
+        queries = self._build_queries(models, terms, filters)
         multi_search_results = self.backend.client.multi_search(queries)
 
-        logger.info(multi_search_results)
-
-        # Process and enhance results
-        results = []
-        for index_results in multi_search_results["results"]:
-            index_uid = index_results["indexUid"]
-            boost_value = models_boosts[index_uid]
-
-            for hit in index_results["hits"]:
-                hit_b = {
-                    **hit,
-                    "boosts": boost_value,
-                }
-                results.append(hit_b)
-
-        # Calculate scores
-        for item in results:
-            score = sum(
-                len(str(matches)) * (item["boosts"].get(key, 1) or 1)
-                for key, matches in item["_matchesPosition"].items()
-            )
-            item["score"] = score
-
-        # Sort results by score
-        sorted_results = sorted(results, key=itemgetter("score"), reverse=True)
-        sorted_ids = [item["id"] for item in sorted_results]
+        # Get search results sorted by relevance score in descending order (highest scores first)
+        # We do this here so that we can pre-sort the ID list by rank so that if we're searching
+        # within a window of results, that window will only be searching within the top ranked
+        # results.
+        sorted_id_score_pairs = ranked_ids_from_search_results(multi_search_results)
+        id_to_score = {id: score for id, score in sorted_id_score_pairs}
+        sorted_ids = [id for id, _ in sorted_id_score_pairs]
 
         # Retrieve results from the database
         qc = self.query_compiler
         window_sorted_ids = sorted_ids[self.start : self.stop]
         results = qc.queryset.filter(pk__in=window_sorted_ids)
 
-        # Preserve the order by score
-        if qc.order_by_relevance:
-            preserved_order = Case(
-                *[When(pk=pk, then=pos) for pos, pk in enumerate(window_sorted_ids)],
-            )
-            results = results.order_by(preserved_order)
+        # Preserve the order by relevance score by annotating with actual scores
+        if qc.order_by_relevance and sorted_ids:
+            # Create a mapping from ID to its actual ranking score
+            # This directly uses the score values from MeiliSearch
+            # Higher scores will be ordered first when we use descending order
+            score_cases = [When(pk=pk, then=id_to_score.get(pk, 0.0)) for pk in sorted_ids]
+
+            # Annotate the queryset with the actual scores
+            preserved_score = Case(*score_cases, default=0.0)
+            results = results.annotate(search_rank=preserved_score)
+
+            # Order by the actual score in descending order (highest first)
+            results = results.order_by("-search_rank")
+        for result in results:
+            print(f"{result.search_rank}: {result.id} - {result.title}")
 
         res = results.distinct()
 

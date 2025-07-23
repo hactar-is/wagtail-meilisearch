@@ -2,7 +2,7 @@ import contextlib
 import functools
 import weakref
 from functools import lru_cache
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union, cast
 
 from django.apps import apps
 from django.db.models import Manager, Model, QuerySet
@@ -142,3 +142,41 @@ def has_date_fields(obj: Model) -> bool:
     date_fields: List[str] = ["created_at", "updated_at", "first_published_at", "last_published_at"]
     fields: List[str] = [field.name for field in obj._meta.fields]
     return any(field in date_fields for field in fields)
+
+
+def ranked_ids_from_search_results(results: Dict[str, Any]) -> List[Tuple[int, float]]:
+    """
+    Extract all IDs and ranking scores from the hits in each index of the search results,
+    sorted by ranking score in descending order.
+
+    Args:
+        results (Dict[str, Any]): The search results dictionary from MeiliSearch.
+            Expected to have a 'results' key containing a list of index results,
+            each with a 'hits' list containing objects with 'id' and '_rankingScore' keys.
+
+    Returns:
+        List[Tuple[int, float]]: A list of tuples containing (id, ranking_score) for each hit,
+                                 sorted by ranking score in descending order.
+                                 If a hit doesn't have a ranking score, it defaults to 0.0.
+    """
+    items: List[Tuple[int, float]] = []
+
+    # Handle case where results is directly a single index result
+    if "hits" in results:
+        items.extend(
+            (hit["id"], hit.get("_rankingScore", 0.0)) for hit in results["hits"] if "id" in hit
+        )
+        return items
+
+    # Handle case where results contains multiple index results
+    if "results" in results:
+        for index_result in results["results"]:
+            if "hits" in index_result:
+                items.extend(
+                    (hit["id"], hit.get("_rankingScore", 0.0))
+                    for hit in index_result["hits"]
+                    if "id" in hit
+                )
+
+    # Sort the results by ranking score in descending order
+    return sorted(items, key=lambda x: x[1], reverse=True)

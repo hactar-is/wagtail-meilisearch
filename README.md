@@ -1,11 +1,11 @@
 # Wagtail MeiliSearch
 
-This is a (beta) Wagtail search backend for the [MeiliSearch](https://github.com/meilisearch/MeiliSearch) search engine.
+This is a Wagtail search backend for the [MeiliSearch](https://github.com/meilisearch/MeiliSearch) search engine.
 
 
 ## Installation
 
-`poetry add wagtail_meilisearch` or `pip install wagtail_meilisearch`
+`uv add wagtail_meilisearch` or `pip install wagtail_meilisearch`
 
 ## Upgrading
 
@@ -15,7 +15,7 @@ If you're upgrading MeiliSearch from 0.9.x to anything higher, you will need to 
 
 See the [MeiliSearch docs](https://docs.meilisearch.com/guides/advanced_guides/installation.html#environment-variables-and-flags) for info on the values you want to add here.
 
-```
+```python
 WAGTAILSEARCH_BACKENDS = {
     'default': {
         'BACKEND': 'wagtail_meilisearch.backend',
@@ -32,31 +32,6 @@ Indexing a very large site with `python manage.py update_index` can be pretty ta
 
 There are tradeoffs with either strategy - `hard` will guarantee that your search data matches your model data, but be hard work on the CPU for longer. `soft` will be faster and less CPU intensive, but if a field is removed from your model between indexings, that field data will remain in the search index.
 
-One useful trick is to tell Wagtail that you have two search backends, with the default backend set to do `soft` updates that you can run nightly, and a second backend with `hard` updates that you can run less frequently.
-
-```
-WAGTAILSEARCH_BACKENDS = {
-    'default': {
-        'BACKEND': 'wagtail_meilisearch.backend',
-        'HOST': os.environ.get('MEILISEARCH_HOST', 'http://127.0.0.1'),
-        'PORT': os.environ.get('MEILISEARCH_PORT', '7700'),
-        'MASTER_KEY': os.environ.get('MEILI_MASTER_KEY', '')
-    },
-    'hard': {
-        'BACKEND': 'wagtail_meilisearch.backend',
-        'HOST': os.environ.get('MEILISEARCH_HOST', 'http://127.0.0.1'),
-        'PORT': os.environ.get('MEILISEARCH_PORT', '7700'),
-        'MASTER_KEY': os.environ.get('MEILI_MASTER_KEY', ''),
-        'UPDATE_STRATEGY': 'hard'
-    }
-}
-```
-
-If you use this technique, remember to pass the backend name into the `update_index` command otherwise both will run.
-
-`python manage.py update_index --backend default` for a soft update
-`python manage.py update_index --backend hard` for a hard update
-
 ### Delta strategy
 
 The `delta` strategy is useful if you habitually add created_at and updated_at timestamps to your models. This strategy will check the fields...
@@ -68,7 +43,7 @@ The `delta` strategy is useful if you habitually add created_at and updated_at t
 
 And only update the records for objects where one or more of these fields has a date more recent than the time delta specified in the settings.
 
-```
+```python
 WAGTAILSEARCH_BACKENDS = {
     'default': {
         'BACKEND': 'wagtail_meilisearch.backend',
@@ -93,7 +68,7 @@ If you set `UPDATE_STRATEGY` to `delta` but don't provide a value for `UPDATE_DE
 
 Sometimes you might have a site where a certain page model is guaranteed not to change, for instance an archive section. After creating your initial search index, you can add a `SKIP_MODELS` key to the config to tell wagtail-meilisearch to ignore specific models when running `update_index`. Behind the scenes wagtail-meilisearch returns a dummy model index to the `update_index` management command for every model listed in your `SKIP_MODELS` - this ensures that this setting only affects `update_index`, so if you manually edit one of the models listed it should get re-indexed with the update signal.
 
-```
+```python
 WAGTAILSEARCH_BACKENDS = {
     'default': {
         'BACKEND': 'wagtail_meilisearch.backend',
@@ -112,7 +87,7 @@ WAGTAILSEARCH_BACKENDS = {
 
 Stop words are words for which we don't want to place significance on their frequency. For instance, the search query `tom and jerry` would return far less relevant results if the word `and` was given the same importance as `tom` and `jerry`. There's a fairly sane list of English language stop words supplied, but you can also supply your own. This is particularly useful if you have a lot of content in any other language.
 
-```
+```python
 MY_STOP_WORDS = ['a', 'list', 'of', 'words']
 
 WAGTAILSEARCH_BACKENDS = {
@@ -126,7 +101,7 @@ WAGTAILSEARCH_BACKENDS = {
 
 Or alternatively, you can extend the built in list.
 
-```
+```python
 from wagtail_meilisearch.settings import STOP_WORDS
 
 MY_STOP_WORDS = STOP_WORDS + WELSH_STOP_WORDS + FRENCH_STOP_WORDS
@@ -140,12 +115,32 @@ WAGTAILSEARCH_BACKENDS = {
 }
 ```
 
+## Ranking
+
+We now support Meilisearch's native ranking system which is considerably faster than the rather hacky way we were having to do it before. Meilisearch takes a [list of fields ordered by precedence](https://www.meilisearch.com/docs/learn/relevancy/attribute_ranking_order) to affect the attribute ranking so we build that list by inspecting the `index.SearchField`s and `index.AutocompleteField`s on each model and ordering by boost. As an example, if you want the page title to be the most important field to rank on...
+
+```python
+search_fields = Page.search_fields + [
+    index.AutocompleteField("title", boost=10),
+    index.SearchField("body"),
+    index.SearchField("search_description", boost=5),
+]
+
+```
+
+Any field that doesn't have a `boost` value will be given a default of 0 but will still be sent to Meilisearch's settings as part of the ordered list, so the above settings send an attribute ranking order to Meilisearch of...
+
+```python
+['title', 'search_description', 'body']
+```
+
+In the backend, we automatically annotate the search results with their ranking, with a float between 0 and 1 as `search_rank` so in your search view you can sort by that value.
 
 ## Query limits
 
 If you have a lot of DB documents, the final query to the database can be quite a heavy load. Meilisearch's relevance means that it's usually pretty safe to restrict the number of documents Meilisearch returns, and therefore the number of documents your app needs to get from the database. The limit is **per model**, so if your project has 10 page types and you set a limit of 1000, there's a possible 10000 results.
 
-```
+```python
 WAGTAILSEARCH_BACKENDS = {
     'default': {
         'BACKEND': 'wagtail_meilisearch.backend',
@@ -162,10 +157,10 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ### TODO
 
-* Faceting
 * Write tests
 * Performance improvements
 * Make use of the async in meilisearch-python
+* ~~Faceting~~
 * ~~Implement boosting in the sort algorithm~~
 * ~~Implement stop words~~
 * ~~Search results~~
@@ -173,6 +168,10 @@ If you want to help with the development I'd be more than happy. The vast majori
 * ~~Ensure we're getting results by relevance~~
 
 ## Change Log
+
+#### 1.0.0
+* Big speed improvements thanks to using Meilisearch's native ranking system
+* Adds faceting (this is undocument as yet while I work out if it's any good)
 
 #### 0.17.3
 * Fixes a bug where the meilisearch indexes could end up with a wrong maxTotalHits

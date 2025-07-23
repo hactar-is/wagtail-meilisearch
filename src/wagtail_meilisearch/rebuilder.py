@@ -13,6 +13,7 @@ class MeiliSearchRebuilder:
         self.index: MeiliSearchModelIndex = model_index
         self.uid: str = get_index_label(self.index.model)
         self.dummy_index: DummyModelIndex = DummyModelIndex()
+        self.settings = model_index.settings
 
     def start(self) -> Union[MeiliSearchModelIndex, DummyModelIndex]:
         """
@@ -43,6 +44,7 @@ class MeiliSearchRebuilder:
 
         model = self.index.model
         index: MeiliSearchModelIndex = self.index.backend.get_index_for_model(model)
+        self.settings.apply_settings(index=index)
         return index
 
     def finish(self) -> None:

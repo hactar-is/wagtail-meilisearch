@@ -1,17 +1,14 @@
 import contextlib
-import sys
 
 # Import for type checking only
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type, cast
+from typing import Any, Dict, List, Optional, Type, cast
 
 import arrow
+from django.core.cache import cache
 from django.db.models import Model
 from django.utils.functional import cached_property
 from meilisearch.index import Index
 from requests.exceptions import HTTPError
-
-if TYPE_CHECKING:
-    from meilisearch.client import Client
 
 from .utils import get_document_fields
 
@@ -27,6 +24,60 @@ class MeiliIndexError(Exception):
     pass
 
 
+class MeiliIndexRegistry:
+    """A registry of all the indexes we're using."""
+
+    indexes: dict = {}
+
+    def __init__(self, backend, settings):
+        self.backend = backend
+        self.client = backend.client
+        self.settings = settings
+
+    def _get_label(self, model):
+        label = model._meta.label.replace(".", "-")
+        return label
+
+    def get_index_for_model(self, model):
+        """This gets called by the get_index_for_model in the backend which in turn is called by
+        update_index management command so needs to exist as a method on the backend.
+
+        Args:
+            model (Model): The model we're looking for the index for
+
+        Returns:
+            MeiliSearchModelIndex: the index for the model
+        """
+        label = self._get_label(model)
+
+        # See if it's in our registry
+        if label in self.indexes:
+            return self.indexes.get(label)
+
+        # See if it's in the cache
+        cache_key = f"meili_index_{label}"
+        index = cache.get(cache_key)
+        if index is None:
+            index = MeiliSearchModelIndex(
+                backend=self.backend,
+                model=model,
+                settings=self.settings,
+            )
+            cache.set(cache_key, index)
+
+        self.register(label, index)
+        return index
+
+    def register(self, label, index):
+        self.indexes[label] = index
+
+    def _refresh(self, uid, model):
+        index = self.client.get_index(uid)
+        index.delete()
+        new_index = self.get_index_for_model(model)
+        return new_index
+
+
 class MeiliSearchModelIndex:
     """Creates a working index for each model sent to it."""
 
@@ -39,54 +90,28 @@ class MeiliSearchModelIndex:
             model (Model): The Django model to be indexed.
         """
         self.backend = backend
-        self.client: Client = backend.client
-        self.model: Optional[Type[Model]] = model
-        self.model_fields: Set[str] = (
-            set() if model is None else set(_.name for _ in model._meta.fields)
-        )
-        self.name: str = "" if model is None else model._meta.label
-        self.index: Index = self._set_index(model)
-        self.update_strategy: str = backend.update_strategy
-        self.update_delta: Optional[Dict[str, int]] = backend.update_delta
-        self.delta_fields: List[str] = [
+        self.settings = settings = backend.settings
+        self.model = model
+
+        self.client = backend.client
+        self.query_limit = settings.query_limit
+        self.name = model._meta.label
+
+        self.index = self._set_index(model)
+        self.search_params = {
+            "limit": self.query_limit,
+            "attributesToRetrieve": ["id", "first_published_at"],
+            "showMatchesPosition": True,
+        }
+        self.update_strategy = settings.update_strategy
+        self.update_delta = settings.update_delta
+        self.delta_fields = [
             "created_at",
             "updated_at",
             "first_published_at",
             "last_published_at",
         ]
-        self.label: str = "" if model is None else self._get_label(model)
-        self._update_paginator(self.label)
 
-    def _update_paginator(self, label: str) -> None:
-        try:
-            self.client.index(label).update_settings(
-                {
-                    "pagination": {
-                        "maxTotalHits": self.backend.query_limit,
-                    },
-                },
-            )
-        except Exception as err:
-            sys.stdout.write(f"WARN: Failed to update paginator on {label}\n")
-            sys.stdout.write(f"{err}\n")
-
-    def _update_stop_words(self, label: str) -> None:
-        """
-        Update the stop words for the given index.
-
-        Args:
-            label (str): The label of the index to update.
-        """
-        try:
-            self.client.index(label).update_settings(
-                {
-                    "stopWords": self.backend.stop_words,
-                },
-            )
-        except Exception:
-            sys.stdout.write(f"WARN: Failed to update stop words on {label}\n")
-
-    # @weak_lru()
     def _get_index_settings(self, label: str) -> Dict[str, Any]:
         """
         Get the settings for the index.
@@ -303,7 +328,7 @@ class MeiliSearchModelIndex:
         """
         self.index.delete_all_documents()
 
-    def search(self, query: str) -> Dict[str, Any]:
+    def search(self, query: str, extras: Optional[dict] = None) -> Dict[str, Any]:
         """
         Perform a search on the index.
 
@@ -313,7 +338,13 @@ class MeiliSearchModelIndex:
         Returns:
             dict: The search results.
         """
-        return self.index.search(query, self.backend.search_params)
+        if extras is None:
+            extras = {}
+        params = self.backend.search_params
+        if len(extras):
+            params.update(**extras)
+
+        return self.index.search(query, params)
 
     def __str__(self) -> str:
         """

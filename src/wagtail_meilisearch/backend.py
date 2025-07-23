@@ -5,11 +5,14 @@ from django.db.models import Model, QuerySet
 from django.utils.functional import cached_property
 from wagtail.search.backends.base import BaseSearchBackend, EmptySearchResults
 
-from .index import MeiliSearchModelIndex
+from .index import (
+    MeiliIndexRegistry,
+    MeiliSearchModelIndex,
+)
 from .query import MeiliSearchAutocompleteQueryCompiler, MeiliSearchQueryCompiler
 from .rebuilder import MeiliSearchRebuilder
 from .results import MeiliSearchResults
-from .settings import STOP_WORDS
+from .settings import MeiliSettings
 from .utils import class_is_indexed, get_indexed_models, weak_lru
 
 T = TypeVar("T", bound=Model)
@@ -37,14 +40,40 @@ class MeiliSearchBackend(BaseSearchBackend):
             params (dict): Configuration parameters for the backend.
         """
         super().__init__(params)
+        self.params = params
+        try:
+            self.client = meilisearch.Client(
+                "{}:{}".format(self.params["HOST"], self.params["PORT"]),
+                self.params["MASTER_KEY"],
+            )
+        except Exception:
+            raise
+
+        self.settings = MeiliSettings(params)
+        self.index_registry = MeiliIndexRegistry(
+            backend=self,
+            settings=self.settings,
+        )
         self.params: Dict[str, Any] = params
         self._client: Optional[meilisearch.Client] = None
-        self.stop_words: List[str] = params.get("STOP_WORDS", STOP_WORDS)
+        # self.stop_words: List[str] = params.get("STOP_WORDS", self.settings.STOP_WORDS)
         self.skip_models: List[Type[Model]] = params.get("SKIP_MODELS", [])
         self.update_strategy: str = params.get("UPDATE_STRATEGY", "soft")
         self.query_limit: int = params.get("QUERY_LIMIT", 999999)
         self.search_params: Dict[str, Any] = self._init_search_params()
         self.update_delta: Optional[Dict[str, int]] = self._init_update_delta()
+
+    def get_index_for_model(self, model):
+        """This gets called by the update_index management command and needs to exist
+        as a method on the backend.
+
+        Args:
+            model (Model): The model we're looking for the index for
+
+        Returns:
+            MeiliSearchModelIndex: the index for the model
+        """
+        return self.index_registry.get_index_for_model(model)
 
     @cached_property
     def client(self) -> meilisearch.Client:
