@@ -49,7 +49,10 @@ class MeiliSearchResults(BaseSearchResults):
         qc = self.query_compiler
         model = qc.queryset.model
         models = get_descendant_models(model)
-        terms = qc.query.query_string
+        try:
+            terms = qc.query.query_string
+        except AttributeError:
+            return None
         filter_field = f"{field_name}_filter"
 
         results = OrderedDict()
@@ -199,7 +202,6 @@ class MeiliSearchResults(BaseSearchResults):
                         filter_list.append(f"{filter_field} = '{filter_value}'")
                 q["filter"] = f" {operator} ".join(filter_list)
             queries.append(q)
-        print(queries)
 
         return queries
 
