@@ -11,6 +11,14 @@ This is a Wagtail search backend for the [MeiliSearch](https://github.com/meilis
 
 If you're upgrading MeiliSearch from 0.9.x to anything higher, you will need to destroy and re-create MeiliSearch's data.ms directory.
 
+## Requirements
+
+- Python >=3.10
+- wagtail >=6.0
+- meilisearch-python >= 0.36.0
+
+Tested against Meilisearch server v1.15.2 - latest at the time of writing.
+
 ## Configuration
 
 See the [MeiliSearch docs](https://docs.meilisearch.com/guides/advanced_guides/installation.html#environment-variables-and-flags) for info on the values you want to add here.
@@ -135,6 +143,33 @@ Any field that doesn't have a `boost` value will be given a default of 0 but wil
 ```
 
 In the backend, we automatically annotate the search results with their ranking, with a float between 0 and 1 as `search_rank` so in your search view you can sort by that value.
+
+```python
+def search_view(request):
+    search_query = request.GET.get('query', '')
+    search_results = Page.objects.search(search_query)
+
+    # Results are already sorted by search_rank
+    # You can access the rank for each result
+    for result in search_results:
+        print(f"Result: {result.title}, Rank: {result.search_rank}")
+
+    return render(request, 'search_results.html.j2', {
+        'search_query': search_query,
+        'search_results': search_results,
+    })
+```
+
+And you might even fancy using the search rank in your template...
+
+```jinja2
+{% for result in search_results %}
+    <div class="result {% if result.search_rank > 0.8 %}high-relevance{% endif %}">
+        <h3>{{ result.title }}</h3>
+        <p>Relevance: {{ result.search_rank }}</p>
+    </div>
+{% endfor %}
+```
 
 ## Faceting
 
