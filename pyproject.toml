@@ -1,7 +1,7 @@
 [project]
 name = "wagtail-meilisearch"
 version = "1.0.0"
-description = "A MeiliSearch backend for Wagatil"
+description = "A MeiliSearch backend for Wagtail"
 readme = "README.md"
 authors = [
     { name = "Hactar", email = "systems@hactar.is" }
