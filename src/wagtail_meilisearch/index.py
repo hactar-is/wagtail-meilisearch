@@ -224,6 +224,14 @@ class MeiliSearchModelIndex:
 
         self.label = label = model._meta.label.replace(".", "-")
         return label
+    
+    def get_key(self) -> str:
+        """Get the unique key for this index
+    
+        Returns:
+            str: This index's unique key
+        """
+        return self.label
 
     def _rebuild(self) -> None:
         """Rebuild the index by deleting and recreating it.
