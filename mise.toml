@@ -1,0 +1,7 @@
+[tasks.build]
+run = "uv build --clear ./"
+
+[tasks.publish]
+run = """
+uv publish -u __token__ -p $POETRY_PYPI_TOKEN_MEILISEARCH
+"""

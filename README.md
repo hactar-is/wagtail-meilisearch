@@ -253,6 +253,9 @@ If you want to help with the development I'd be more than happy. The vast majori
 
 ## Change Log
 
+#### 1.1.0
+* adds a get_key method for Wagtail 7 support, thanks @aznszn!
+
 #### 1.0.0
 * Big speed improvements thanks to using Meilisearch's native ranking system
 * Adds faceting
