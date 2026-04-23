@@ -52,7 +52,7 @@ class MeiliSearchResults(BaseSearchResults):
         try:
             terms = qc.query.query_string
         except AttributeError:
-            return None
+            return OrderedDict()
         filter_field = f"{field_name}_filter"
 
         results = OrderedDict()
