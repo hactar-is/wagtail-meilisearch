@@ -261,7 +261,7 @@ The tests do not need a Meilisearch server.
 
 ## Change Log
 
-#### 1.1.1
+#### 1.1.2
 * Fixes stale search documents: edited objects were re-indexed with their old field values until the process restarted
 * Fixes searches on one model querying every index, which could return the wrong objects when primary keys overlap between models
 * Makes RelatedFields searchable, and uses the correct document key for AutocompleteFields, after an index rebuild
