@@ -2,7 +2,7 @@ import sys
 from typing import Any, Dict, List, Optional, Type, Union
 
 from django.db.models import Model
-from wagtail.search.index import AutocompleteField, FilterField, SearchField
+from wagtail.search.index import AutocompleteField, FilterField, RelatedFields, SearchField
 
 from .defaults import AUTOCOMPLETE_SUFFIX, DEFAULT_RANKING_RULES, FILTER_SUFFIX, STOP_WORDS
 
@@ -22,6 +22,23 @@ def _get_field_mapping(field: Union[SearchField, FilterField, AutocompleteField]
     if isinstance(field, AutocompleteField):
         return field.field_name + AUTOCOMPLETE_SUFFIX
     return field.field_name
+
+
+def _add_boost(
+    boosts: Dict[str, float],
+    name: str,
+    field: Union[SearchField, AutocompleteField],
+) -> None:
+    """Record a field's boost, keeping the highest boost if the name is already present.
+
+    Args:
+        boosts: Boost values keyed by attribute name, updated in place.
+        name: The attribute name in the index document.
+        field: The search field, which may have a boost.
+    """
+    boost = getattr(field, "boost", None)
+    boost = 1 if boost is None else boost
+    boosts[name] = max(boost, boosts.get(name, boost))
 
 
 class MeiliSettings:
@@ -211,35 +228,18 @@ class MeiliSettings:
         Returns:
             List[str]: A list of field names ordered by their boost values in descending order.
         """
-        if not model or not hasattr(model, "search_fields"):
+        if not model or not hasattr(model, "get_search_fields"):
             return []
 
-        fields = []
-        for field in model.search_fields:
-            if not isinstance(field, (SearchField, AutocompleteField)):
-                continue
-            boost = 1
-            if hasattr(field, "boost"):
-                # Ensure boost is a number, default to 1 if None or invalid
-                try:
-                    boost = 1 if field.boost is None else field.boost
-                except (TypeError, ValueError):
-                    boost = 1
-            fields.append((field.field_name, boost))  # noqa: PERF401
+        # Attribute names must match the document keys built by utils.get_document_fields
+        boosts: Dict[str, float] = {}
+        for field in model.get_search_fields():
+            if isinstance(field, (SearchField, AutocompleteField)):
+                _add_boost(boosts, _get_field_mapping(field), field)
+            elif isinstance(field, RelatedFields):
+                for sub_field in field.fields:
+                    if isinstance(sub_field, (SearchField, AutocompleteField)):
+                        name = f"{field.field_name}__{_get_field_mapping(sub_field)}"
+                        _add_boost(boosts, name, sub_field)
 
-        # Sort safely with a key function that handles None values
-        def safe_sort_key(item):
-            """Safe sorting key function that handles None boost values.
-
-            Args:
-                item: A tuple of (field_name, boost_value)
-
-            Returns:
-                int or float: The boost value or 0 if the boost is None
-            """
-            _, boost = item
-            # Return a default value (0) if boost is None
-            return 0 if boost is None else boost
-
-        sorted_fields = [field[0] for field in sorted(fields, key=safe_sort_key, reverse=True)]
-        return sorted_fields
+        return sorted(boosts, key=lambda name: boosts[name], reverse=True)

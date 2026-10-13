@@ -239,6 +239,14 @@ WAGTAILSEARCH_BACKENDS = {
 If you want to help with the development I'd be more than happy. The vast majority of the heavy lifting is done by MeiliSearch itself, but there is a TODO list...
 
 
+### Running the tests
+
+```bash
+PYTHONPATH=src:. uv run --no-project --with pytest --with wagtail --with meilisearch --with arrow python -m pytest tests
+```
+
+The tests do not need a Meilisearch server.
+
 ### TODO
 
 * Write tests
@@ -252,6 +260,11 @@ If you want to help with the development I'd be more than happy. The vast majori
 * ~~Ensure we're getting results by relevance~~
 
 ## Change Log
+
+#### 1.1.1
+* Fixes stale search documents: edited objects were re-indexed with their old field values until the process restarted
+* Fixes searches on one model querying every index, which could return the wrong objects when primary keys overlap between models
+* Makes RelatedFields searchable, and uses the correct document key for AutocompleteFields, after an index rebuild
 
 #### 1.1.0
 * adds a get_key method for Wagtail 7 support, thanks @aznszn!

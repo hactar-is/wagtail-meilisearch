@@ -168,22 +168,18 @@ class MeiliSearchResults(BaseSearchResults):
         if filters is None:
             filters = []
 
-        # This block was actually part of the old boosts used before Meilisearch had
-        # native ranking. However, if I remove this, somehow we end up searching
-        # across all indexes instead of only those covered by the queryset we
-        # want to search in. Eventually I'll work out why and remove this.
-        models_boosts = {}
-        for model in models:
-            label = get_index_label(model)
-            models_boosts[label] = self._get_field_boosts(model)
+        # Only search the indexes of the models covered by the queryset. Results from other
+        # indexes would be matched to this model by primary key alone, giving wrong results.
+        model_labels = {get_index_label(model) for model in models}
 
-        # Get active indexes
         # For model types that don't have any documents, meilisearch won't
         # create an index, so we have to check before running multi_search
         # if an index exists, otherwise the entire multi_search call will fail.
         limit = self.backend.settings.query_limit
         active_index_dict = self.backend.client.get_indexes({"limit": limit})
-        active_indexes = [index for index in active_index_dict["results"]]
+        active_indexes = [
+            index for index in active_index_dict["results"] if index.uid in model_labels
+        ]
 
         queries = []
         for index in active_indexes:

@@ -105,7 +105,6 @@ def prepare_value(value: Any) -> str:
     return str(value)
 
 
-@lru_cache(maxsize=None)
 def get_document_fields(model: Type[Model], item: Model) -> Dict[str, str]:
     """
     Walks through the model's search fields and returns a dictionary of fields to be indexed.
